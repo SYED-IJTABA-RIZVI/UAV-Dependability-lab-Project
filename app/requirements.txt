@@ -1,2 +1,8 @@
 streamlit>=1.38
 pillow>=10.0
+sqlalchemy>=2.0
+psycopg2-binary>=2.9
+pandas>=2.0
+matplotlib>=3.8
+python-dotenv>=1.0
+pyyaml>=6.0

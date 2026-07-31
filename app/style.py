@@ -52,6 +52,12 @@ CSS = """
 .section-label{ font-size:10px; font-weight:700; letter-spacing:0.5px; color:var(--text-low);
   text-transform:uppercase; margin:16px 0 8px; font-family:var(--mono); }
 
+.source-tabs{ background:var(--panel-alt); border:1px solid var(--border); border-radius:var(--radius);
+  padding:8px 10px; margin-bottom:4px; }
+.source-tabs [data-testid="stRadio"] label p{
+  font-size:11px !important; font-weight:700 !important; letter-spacing:0.3px;
+}
+
 .mode-card{ border:1.5px solid var(--border); border-radius:var(--radius); padding:11px 12px;
   margin-top:8px; }
 .mode-card.selected{ border-color:var(--accent); background:var(--accent-bg); }
