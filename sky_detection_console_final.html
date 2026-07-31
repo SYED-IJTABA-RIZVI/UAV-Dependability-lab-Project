@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sky Object Detection Tool</title>
+<style>
+  :root{
+    --bg:#F4F5F6;
+    --panel:#FFFFFF;
+    --panel-alt:#F8F9FA;
+    --border:#DFE2E5;
+    --border-strong:#C2C7CC;
+    --text-hi:#1B2126;
+    --text-mid:#616B74;
+    --text-low:#8D959D;
+
+    /* single interactive accent — buttons, active states, selection, model output. nothing else. */
+    --accent:#2C5A7C;
+    --accent-bg:#E8EEF2;
+
+    /* exactly three status colors — detection priority only, never decoration or category */
+    --status-safe:#2E7D4F;
+    --status-safe-bg:#E7F3EB;
+    --status-caution:#9C6B0E;
+    --status-caution-bg:#F7F0DE;
+    --status-threat:#B23A31;
+    --status-threat-bg:#F6E6E4;
+
+    --radius:4px;
+    --mono:'JetBrains Mono','Consolas',monospace;
+    --sans:'Segoe UI','Inter',-apple-system,sans-serif;
+    --shadow:0 1px 2px rgba(20,25,32,0.05);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{ background:var(--bg); color:var(--text-hi); font-family:var(--sans); font-size:13px; }
+
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    background:var(--panel); border-bottom:1px solid var(--border);
+    padding:11px 20px;
+  }
+  .brand{ display:flex; align-items:center; gap:10px; }
+  .logo{ width:30px; height:30px; border-radius:var(--radius); background:var(--accent); display:flex; align-items:center; justify-content:center; color:#fff; font-weight:700; font-size:11.5px; letter-spacing:0.5px; }
+  .brand-name{ font-size:14px; font-weight:600; }
+  .brand-sub{ font-size:10.5px; color:var(--text-low); font-family:var(--mono); letter-spacing:0.3px; }
+  .header-right{ display:flex; align-items:center; gap:14px; }
+
+  .classes{ display:flex; align-items:center; gap:7px; font-size:11px; color:var(--text-mid); }
+  .class-pill{ font-weight:600; font-size:10.5px; padding:3px 9px; border-radius:var(--radius); border:1px solid var(--border-strong); background:transparent; color:var(--text-mid); font-family:var(--mono); }
+
+  .status-pill{ display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--status-safe); border:1px solid var(--status-safe); padding:5px 12px; border-radius:var(--radius); font-family:var(--mono); background:var(--status-safe-bg); }
+  .status-dot{ width:6px; height:6px; border-radius:50%; background:var(--status-safe); }
+
+  .shell{ display:grid; grid-template-columns:280px 1fr 300px; gap:14px; padding:16px 20px; align-items:start; }
+
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); box-shadow:var(--shadow); }
+  .panel-pad{ padding:16px; }
+  .panel-title{ font-size:12.5px; font-weight:700; letter-spacing:0.2px; display:flex; align-items:center; gap:8px; }
+  .panel-sub{ font-size:11px; color:var(--text-low); margin-top:3px; line-height:1.5; }
+
+  .source-tabs{ display:grid; grid-template-columns:repeat(4,1fr); gap:4px; background:var(--panel-alt); border:1px solid var(--border); border-radius:var(--radius); padding:3px; margin-top:14px; }
+  .source-tab{ text-align:center; font-size:10.5px; font-weight:700; letter-spacing:0.3px; padding:8px 2px; border-radius:2px; color:var(--text-mid); cursor:pointer; font-family:var(--mono); }
+  .source-tab.active{ background:var(--accent); color:#fff; }
+
+  .src-panel{ display:none; }
+  .src-panel.active{ display:block; }
+
+  .dropzone{ margin-top:14px; border:1.5px dashed var(--border-strong); border-radius:var(--radius); padding:22px 12px; text-align:center; background:var(--panel-alt); }
+  .dropzone-icon{ font-size:18px; color:var(--text-low); }
+  .dropzone-text{ font-size:12px; color:var(--text-mid); margin-top:8px; font-weight:600; }
+  .dropzone-sub{ font-size:10.5px; color:var(--text-low); margin-top:3px; font-family:var(--mono); }
+  .dz-buttons{ display:flex; gap:8px; margin-top:12px; }
+  .btn-sm{ flex:1; font-size:11px; font-weight:600; padding:8px 6px; border-radius:var(--radius); border:1px solid var(--border-strong); background:#fff; color:var(--text-mid); cursor:pointer; font-family:var(--mono); }
+
+  .live-config{ border:1px solid var(--border); border-radius:var(--radius); padding:13px; background:var(--panel-alt); }
+  .live-row{ display:flex; justify-content:space-between; align-items:center; font-size:11.5px; margin-bottom:9px; }
+  .live-row:last-child{ margin-bottom:0; }
+  .live-row label{ color:var(--text-mid); font-weight:600; font-family:var(--mono); font-size:10.5px; }
+  select.mini, input.mini{ font-size:11px; padding:5px 8px; border-radius:2px; border:1px solid var(--border-strong); background:#fff; color:var(--text-hi); font-family:var(--mono); }
+  .conn-status{ display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; color:var(--status-safe); margin-top:11px; padding-top:11px; border-top:1px solid var(--border); }
+
+  .folder-note{ border:1px solid var(--border); border-radius:var(--radius); padding:16px; background:var(--panel-alt); text-align:center; }
+  .folder-note-icon{ font-size:18px; color:var(--text-low); }
+  .folder-note-text{ font-size:11.5px; color:var(--text-mid); margin-top:8px; }
+
+  .section-label{ font-size:10px; font-weight:700; letter-spacing:0.5px; color:var(--text-low); text-transform:uppercase; margin:18px 0 8px; font-family:var(--mono); }
+
+  .scenario{ display:flex; gap:10px; align-items:center; padding:9px; border-radius:var(--radius); border:1px solid var(--border); margin-bottom:8px; cursor:pointer; }
+  .scenario-thumb{ width:32px; height:32px; border-radius:2px; flex-shrink:0; background:var(--border-strong); }
+  .scenario-name{ font-size:11.5px; font-weight:600; }
+  .scenario-sub{ font-size:10px; color:var(--text-low); font-family:var(--mono); }
+
+  .queue-item{ display:flex; gap:10px; align-items:center; padding:9px; border-radius:var(--radius); border:1px solid var(--border); background:var(--panel-alt); }
+  .queue-thumb{ width:30px; height:30px; border-radius:2px; background:var(--border-strong); flex-shrink:0; }
+  .queue-name{ font-size:11px; font-weight:600; }
+  .queue-meta{ font-size:9.5px; color:var(--text-low); font-family:var(--mono); }
+  .queue-status{ margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--status-safe); }
+
+  .ws-head{ display:flex; align-items:center; justify-content:space-between; padding:14px 16px; }
+  .ws-eyebrow{ font-size:10px; font-weight:700; color:var(--accent); letter-spacing:0.6px; font-family:var(--mono); }
+  .ws-title{ font-size:14.5px; font-weight:600; margin-top:2px; }
+  .btn-primary{ background:var(--accent); color:#fff; border:none; font-size:12px; font-weight:700; padding:10px 18px; border-radius:var(--radius); cursor:pointer; display:flex; align-items:center; gap:6px; font-family:var(--mono); }
+
+  .frame-wrap{ position:relative; margin:0 16px; }
+  .frame{ position:relative; aspect-ratio:16/9; border-radius:var(--radius); overflow:hidden; background:linear-gradient(180deg,#1b2432,#0d131c); }
+  .frame-caption{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#4b5a6b; font-size:12px; font-family:var(--mono); }
+
+  .hud-tl{ position:absolute; top:10px; left:12px; display:flex; gap:8px; }
+  .hud-chip{ font-family:var(--mono); font-size:10.5px; background:rgba(0,0,0,0.55); color:#DCE4EC; padding:4px 9px; border-radius:2px; }
+  .hud-chip.fps{ color:#8FD79F; }
+  .hud-live{ position:absolute; top:10px; right:12px; display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:10.5px; color:#E08A83; background:rgba(0,0,0,0.55); padding:4px 10px; border-radius:2px; }
+  .hud-live-dot{ width:6px; height:6px; border-radius:50%; background:#D65C50; }
+
+  .box{ position:absolute; border:2px solid; border-radius:1px; }
+  .box.threat{ border-color:var(--status-threat); }
+  .box.caution{ border-color:var(--status-caution); }
+  .box-tag{ position:absolute; top:-40px; left:-2px; font-family:var(--mono); font-size:10px; padding:3px 7px; border-radius:2px; white-space:nowrap; line-height:1.5; }
+  .box.threat .box-tag{ background:var(--status-threat); color:#fff; }
+  .box.caution .box-tag{ background:var(--status-caution); color:#fff; }
+  .box-lat{ display:block; font-size:9px; opacity:0.9; }
+
+  .ws-footer{ padding:14px 16px; display:flex; align-items:center; gap:8px; color:var(--text-low); font-size:11px; border-top:1px solid var(--border); margin-top:12px; font-family:var(--mono); }
+
+  .mode-card{ border:1.5px solid var(--border); border-radius:var(--radius); padding:11px 12px; margin-top:10px; cursor:pointer; }
+  .mode-card.selected{ border-color:var(--accent); background:var(--accent-bg); }
+  .mode-head{ display:flex; justify-content:space-between; align-items:center; }
+  .mode-name{ font-size:12px; font-weight:700; }
+  .mode-badge{ font-size:9px; font-weight:700; padding:2px 8px; border-radius:2px; border:1px solid var(--accent); color:var(--accent); font-family:var(--mono); }
+  .mode-desc{ font-size:10.5px; color:var(--text-mid); margin-top:4px; line-height:1.5; }
+
+  .field{ margin-top:14px; }
+  .field-label{ font-size:11px; font-weight:600; color:var(--text-mid); margin-bottom:6px; font-family:var(--mono); }
+  .select-full{ width:100%; font-size:11.5px; padding:9px 10px; border-radius:2px; border:1px solid var(--border-strong); background:#fff; color:var(--text-hi); font-family:var(--mono); }
+
+  .custom-model-row{ display:flex; gap:6px; margin-top:8px; }
+  .btn-upload{ flex:1; font-size:10.5px; font-weight:600; padding:8px 6px; border-radius:2px; border:1px dashed var(--border-strong); background:var(--panel-alt); color:var(--text-mid); cursor:pointer; font-family:var(--mono); text-align:center; }
+  .custom-model-item{ display:flex; align-items:center; justify-content:space-between; margin-top:8px; padding:7px 9px; border:1px solid var(--border); border-radius:2px; background:var(--panel-alt); }
+  .cmi-name{ font-family:var(--mono); font-size:10.5px; color:var(--text-hi); }
+  .cmi-meta{ font-family:var(--mono); font-size:9px; color:var(--text-low); }
+  .cmi-badge{ font-family:var(--mono); font-size:9px; padding:2px 6px; border-radius:2px; color:var(--status-safe); border:1px solid var(--status-safe); background:var(--status-safe-bg); }
+
+  .slider-row{ display:flex; justify-content:space-between; align-items:center; }
+  .slider-val{ font-family:var(--mono); font-size:12px; font-weight:700; color:var(--accent); }
+  input[type=range]{ width:100%; margin-top:8px; accent-color:var(--accent); }
+  .slider-labels{ display:flex; justify-content:space-between; font-size:9.5px; color:var(--text-low); margin-top:3px; font-family:var(--mono); }
+
+  .metric-box{ margin-top:16px; border:1px solid var(--border); border-radius:var(--radius); padding:11px 12px; background:var(--panel-alt); }
+  .metric-title{ font-size:10px; font-weight:700; color:var(--text-mid); letter-spacing:0.4px; font-family:var(--mono); }
+  .latency-row{ display:flex; justify-content:space-between; margin-top:10px; font-family:var(--mono); font-size:10.5px; }
+  .latency-item{ display:flex; flex-direction:column; gap:2px; }
+  .latency-label{ color:var(--text-low); font-size:9px; text-transform:uppercase; letter-spacing:0.3px; }
+  .latency-val{ font-weight:700; color:var(--accent); }
+
+  .vlm-panel{ margin-top:14px; background:var(--panel-alt); border:1px solid var(--accent); border-radius:var(--radius); padding:12px 13px; }
+  .vlm-panel-head{ display:flex; align-items:center; justify-content:space-between; }
+  .vlm-panel-title{ font-size:10.5px; font-weight:700; letter-spacing:0.5px; color:var(--accent); font-family:var(--mono); }
+  .vlm-panel-lat{ font-family:var(--mono); font-size:10.5px; color:var(--accent); }
+  .vlm-panel-sub{ font-size:9.5px; color:var(--text-low); margin-top:5px; font-family:var(--mono); }
+  .vlm-panel-cls{ font-size:14px; font-weight:700; margin-top:9px; color:var(--text-hi); }
+  .vlm-panel-conf{ font-family:var(--mono); font-size:11px; font-weight:400; color:var(--accent); }
+  .vlm-panel-reason{ font-size:11px; color:var(--text-mid); margin-top:7px; line-height:1.5; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">SDT</div>
+    <div>
+      <div class="brand-name">Sky Object Detection Tool</div>
+      <div class="brand-sub">YOLOv11 / VLM CASCADE &mdash; LOCAL DEPLOYMENT</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <div class="classes">
+      ACTIVE CLASSES:
+      <span class="class-pill">DRONE</span>
+      <span class="class-pill">BIRD</span>
+      <span class="class-pill">AIRPLANE</span>
+      <span class="class-pill">HELICOPTER</span>
+    </div>
+    <div class="status-pill"><span class="status-dot"></span>OPERATIONAL &middot; PIPELINE v1.4</div>
+  </div>
+</header>
+
+<div class="shell">
+
+  <!-- LEFT: source input -->
+  <div class="panel panel-pad">
+    <div class="panel-title">&uarr; INPUT SOURCE</div>
+    <div class="panel-sub">Stream live, or upload video, images, or a folder of recordings.</div>
+
+    <div class="source-tabs">
+      <div class="source-tab" data-tab="live">LIVE</div>
+      <div class="source-tab" data-tab="video">VIDEO</div>
+      <div class="source-tab active" data-tab="image">IMAGE</div>
+      <div class="source-tab" data-tab="folder">FOLDER</div>
+    </div>
+
+    <div class="src-panel" id="panel-live" style="margin-top:14px;">
+      <div class="live-config">
+        <div class="live-row"><label>SOURCE</label><select class="mini"><option>RTSP &mdash; CAM-02</option><option>RTSP &mdash; CAM-05</option></select></div>
+        <div class="live-row"><label>MODALITY</label><select class="mini"><option>RGB</option><option>IR / THERMAL</option></select></div>
+        <div class="live-row"><label>TARGET FPS</label><input class="mini" style="width:56px;" value="30"></div>
+        <div class="conn-status"><span class="status-dot"></span>CAM-02 CONNECTED &middot; 29.4 FPS</div>
+      </div>
+    </div>
+
+    <div class="src-panel" id="panel-video" style="margin-top:14px;">
+      <div class="dropzone">
+        <div class="dropzone-icon">&#8679;</div>
+        <div class="dropzone-text">Drag &amp; drop a video file here</div>
+        <div class="dropzone-sub">MP4, MOV, AVI</div>
+      </div>
+      <div class="dz-buttons"><button class="btn-sm">UPLOAD VIDEO</button></div>
+    </div>
+
+    <div class="src-panel active" id="panel-image" style="margin-top:14px;">
+      <div class="dropzone">
+        <div class="dropzone-icon">&#8679;</div>
+        <div class="dropzone-text">Drag &amp; drop images here</div>
+        <div class="dropzone-sub">PNG, JPEG, WEBP</div>
+      </div>
+      <div class="dz-buttons"><button class="btn-sm">UPLOAD FILES</button></div>
+    </div>
+
+    <div class="src-panel" id="panel-folder" style="margin-top:14px;">
+      <div class="folder-note">
+        <div class="folder-note-icon">&#128193;</div>
+        <div class="folder-note-text">Select a local folder of recordings to batch-process.</div>
+      </div>
+      <div class="dz-buttons"><button class="btn-sm">SELECT FOLDER</button></div>
+    </div>
+
+    <div class="section-label">SELECT SKY SCENARIOS</div>
+    <div class="scenario">
+      <div class="scenario-thumb"></div>
+      <div><div class="scenario-name">Airport Scenario</div><div class="scenario-sub">DRONE + BIRD (YOLO FALLBACK)</div></div>
+    </div>
+    <div class="scenario">
+      <div class="scenario-thumb"></div>
+      <div><div class="scenario-name">Migratory Scenario</div><div class="scenario-sub">WILDLIFE FLOCK (VLM CONTEST)</div></div>
+    </div>
+    <div class="scenario">
+      <div class="scenario-thumb"></div>
+      <div><div class="scenario-name">Civil Scenario</div><div class="scenario-sub">AVIATION CORRIDOR (DUAL)</div></div>
+    </div>
+
+    <div class="section-label">QUEUE (1)</div>
+    <div class="queue-item">
+      <div class="queue-thumb"></div>
+      <div>
+        <div class="queue-name">Airport_NoFlyZone_Sector7.jpg</div>
+        <div class="queue-meta">420 KB</div>
+      </div>
+      <div class="queue-status">READY</div>
+    </div>
+  </div>
+
+  <!-- CENTER: workspace -->
+  <div class="panel">
+    <div class="ws-head">
+      <div>
+        <div class="ws-eyebrow">ACTIVE WORKSPACE</div>
+        <div class="ws-title">Airport_NoFlyZone_Sector7.jpg</div>
+      </div>
+      <button class="btn-primary">&#9654; ANALYZE FRAME</button>
+    </div>
+
+    <div class="frame-wrap">
+      <div class="frame">
+        <div class="frame-caption">AIRPORT_NOFLYZONE_SECTOR7.JPG</div>
+
+        <div class="hud-tl">
+          <div class="hud-chip fps">29.4 FPS</div>
+          <div class="hud-chip">960&times;960</div>
+        </div>
+        <div class="hud-live"><span class="hud-live-dot"></span>LIVE</div>
+
+        <div class="box threat" style="left:28%; top:22%; width:100px; height:64px;">
+          <div class="box-tag">DRONE &middot; 0.87<span class="box-lat">YOLO &middot; 41ms</span></div>
+        </div>
+        <div class="box caution" style="left:56%; top:44%; width:76px; height:48px;">
+          <div class="box-tag">BIRD &middot; 0.31<span class="box-lat">VLM &middot; 340ms</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ws-footer">NO FURTHER DETECTIONS PENDING REVIEW ON THIS FRAME.</div>
+  </div>
+
+  <!-- RIGHT: pipeline config -->
+  <div class="panel panel-pad">
+    <div class="panel-title">&#9670; DETECTION PIPELINE</div>
+    <div class="panel-sub">Configure detection models and fallback behavior for aerial assessment.</div>
+
+    <div class="section-label" style="margin-top:16px;">PIPELINE ANALYTICS MODE</div>
+
+    <div class="mode-card">
+      <div class="mode-head"><span class="mode-name">YOLO Only</span><span class="mode-badge">EDGE-FAST</span></div>
+      <div class="mode-desc">Real-time shape recognition. Low latency; vulnerable to small or blurry birds and drones.</div>
+    </div>
+
+    <div class="mode-card">
+      <div class="mode-head"><span class="mode-name">VLM Only</span><span class="mode-badge">DEEP-VLM</span></div>
+      <div class="mode-desc">Multi-modal reasoning on every frame. Higher contextual accuracy, slower inference.</div>
+    </div>
+
+    <div class="mode-card selected">
+      <div class="mode-head"><span class="mode-name">YOLO &amp; VLM</span><span class="mode-badge">ADAPTIVE FALLBACK</span></div>
+      <div class="mode-desc">YOLO detects clear objects instantly. Below the confidence cutoff, the VLM re-checks automatically.</div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">YOLO DETECTION MODEL</div>
+      <select class="select-full">
+        <option>YOLOv11x (61M params) &mdash; built-in</option>
+        <option>YOLOv11x-RGB &mdash; built-in</option>
+        <option>YOLOv11x-IR &mdash; built-in</option>
+      </select>
+      <div class="custom-model-row">
+        <label class="btn-upload">&#8679; UPLOAD CUSTOM .PT MODEL</label>
+      </div>
+      <div class="custom-model-item">
+        <div><div class="cmi-name">yolov11_ir_custom_v3.pt</div><div class="cmi-meta">86.4 MB</div></div>
+        <div class="cmi-badge">VALIDATED</div>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="field-label">VISION-LANGUAGE MODEL (VLM)</div>
+      <select class="select-full">
+        <option>Qwen2.5-VL (7B model) &mdash; built-in</option>
+        <option>InternVL3 &mdash; built-in</option>
+      </select>
+      <div class="custom-model-row">
+        <label class="btn-upload">&#8679; UPLOAD CUSTOM .PT / .PTH MODEL</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <div class="slider-row"><div class="field-label" style="margin:0;">CONFIDENCE CUTOFF</div><span class="slider-val">0.39</span></div>
+      <input type="range" min="0" max="1" step="0.01" value="0.39">
+      <div class="slider-labels"><span>0.15 (SENSITIVITY)</span><span>0.90 (PRECISION)</span></div>
+    </div>
+
+    <div class="metric-box">
+      <div class="metric-title">INFERENCE LATENCY</div>
+      <div class="latency-row">
+        <div class="latency-item"><span class="latency-label">YOLO PASS</span><span class="latency-val">41 ms</span></div>
+        <div class="latency-item"><span class="latency-label">VLM FALLBACK</span><span class="latency-val">340 ms</span></div>
+        <div class="latency-item"><span class="latency-label">CASCADE RATE</span><span class="latency-val">18%</span></div>
+      </div>
+    </div>
+
+    <!-- VLM output panel: only present when the current frame has a detection that cascaded to the VLM -->
+    <div class="vlm-panel">
+      <div class="vlm-panel-head">
+        <div class="vlm-panel-title">&#9670; VLM OUTPUT</div>
+        <div class="vlm-panel-lat">340 ms</div>
+      </div>
+      <div class="vlm-panel-sub">TRIGGERED &middot; CONFIDENCE 0.31 CROSSED CUTOFF 0.39</div>
+      <div class="vlm-panel-cls">Bird <span class="vlm-panel-conf">0.74</span></div>
+      <div class="vlm-panel-reason">Small object, flapping wing motion across frames, no rigid rotor silhouette. Consistent with avian flight, not UAV.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.source-tab').forEach(function(tab){
+    tab.addEventListener('click', function(){
+      document.querySelectorAll('.source-tab').forEach(function(t){ t.classList.remove('active'); });
+      document.querySelectorAll('.src-panel').forEach(function(p){ p.classList.remove('active'); });
+      tab.classList.add('active');
+      document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
+    });
+  });
+</script>
+
+</body>
+</html>

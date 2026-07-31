@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Model weights / checkpoints (large binaries, not meant for git)
+*.pt
+*.pth
+*.onnx
+*.ckpt
+
+# Env / secrets
+.env
+*.env
+.env.*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
