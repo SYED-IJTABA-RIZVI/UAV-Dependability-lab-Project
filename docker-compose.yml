@@ -16,5 +16,20 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    build:
+      context: ./app
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-uav}:${POSTGRES_PASSWORD:-uav}@postgres:5432/${POSTGRES_DB:-uav}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./app:/app
+      - ./data:/data
+
 volumes:
   pgdata:
