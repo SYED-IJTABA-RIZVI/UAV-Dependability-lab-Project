@@ -1,19 +1,16 @@
 """
-Placeholder inference layer.
-
-Nothing here is a real model. run_rfdetr() and run_vlm() exist so the
-Streamlit frontend can demonstrate the confidence-gated cascade end to end
-before the trained RFDETR checkpoint and VLM API keys are wired in.
-
-Swap points for the real system:
-  - run_rfdetr(): replace body with a call into the trained RFDETR model
-    (loaded from the lab checkpoint), keep the same return shape.
-  - run_vlm(): replace body with an API call to the selected VLM provider,
-    keep the same return shape.
+Inference layer. run_rfdetr()/run_vlm() (and their multi-object counterparts)
+are the mock simulator — still used as an automatic fallback. Real inference
+is attempted first via real_inference.py whenever it's configured (RFDETR
+checkpoint present + service reachable, or a VLM API key / local service URL
+set); any failure there (unreachable service, timeout, missing checkpoint)
+silently falls back to the simulator below rather than crashing the app.
 """
 
 import hashlib
 import random
+
+import real_inference
 
 CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
 
@@ -75,6 +72,30 @@ def run_vlm(image_bytes: bytes, vlm_name: str) -> dict:
     }
 
 
+def _get_vlm_result(image_bytes: bytes, vlm_model: str) -> dict:
+    if real_inference.vlm_available(vlm_model):
+        try:
+            return real_inference.run_real_vlm(image_bytes, vlm_model)
+        except Exception:
+            pass
+    return run_vlm(image_bytes, vlm_model)
+
+
+def _get_rfdetr_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> dict:
+    if real_inference.rfdetr_available(modality):
+        try:
+            detections = real_inference.run_real_rfdetr(image_bytes, modality)
+            if detections:
+                return max(detections, key=lambda d: d["confidence"])
+            return {
+                "source": "RFDETR", "model_name": rfdetr_model, "class_name": "No Detection",
+                "confidence": 0.0, "bbox": (0.0, 0.0, 1.0, 1.0), "latency_ms": 0,
+            }
+        except Exception:
+            pass
+    return run_rfdetr(image_bytes, modality, rfdetr_model)
+
+
 def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model: str,
                  threshold: float, mode: str) -> dict:
     """
@@ -83,12 +104,12 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
     result = {"rfdetr": None, "vlm": None, "cascaded": False, "final": None}
 
     if mode == "VLM Only":
-        vlm_res = run_vlm(image_bytes, vlm_model)
+        vlm_res = _get_vlm_result(image_bytes, vlm_model)
         result["vlm"] = vlm_res
         result["final"] = vlm_res
         return result
 
-    rfdetr_res = run_rfdetr(image_bytes, modality, rfdetr_model)
+    rfdetr_res = _get_rfdetr_result(image_bytes, modality, rfdetr_model)
     result["rfdetr"] = rfdetr_res
     result["final"] = rfdetr_res
 
@@ -97,7 +118,7 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
 
     # Adaptive fallback
     if rfdetr_res["confidence"] < threshold:
-        vlm_res = run_vlm(image_bytes, vlm_model)
+        vlm_res = _get_vlm_result(image_bytes, vlm_model)
         result["vlm"] = vlm_res
         result["cascaded"] = True
         result["final"] = vlm_res
@@ -210,22 +231,50 @@ def simulate_vlm_for_detection(image_bytes: bytes, detection: dict, vlm_model: s
     }
 
 
+def _get_rfdetr_multi_result(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_model: str) -> list:
+    if real_inference.rfdetr_available(modality):
+        try:
+            detections = real_inference.run_real_rfdetr(image_bytes, modality)
+            for d in detections:
+                # Real detections carry no "which GT box was this simulated from"
+                # hint — batch.py's VLM-scope metric falls back to a genuine
+                # IoU lookup against gt_boxes when "_gt" is None (see
+                # batch._find_gt_for_detection).
+                d["_gt"] = None
+            return detections
+        except Exception:
+            pass
+    return simulate_rfdetr_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+
+
+def _get_vlm_multi_result(image_bytes: bytes, detection: dict, vlm_model: str,
+                           true_class: str | None = None) -> dict:
+    if real_inference.vlm_available(vlm_model):
+        try:
+            result = real_inference.run_real_vlm(image_bytes, vlm_model, crop_bbox=detection["bbox"])
+            result["bbox"] = detection["bbox"]
+            return result
+        except Exception:
+            pass
+    return simulate_vlm_for_detection(image_bytes, detection, vlm_model, true_class=true_class)
+
+
 def run_batch_cascade(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_model: str,
                        vlm_model: str, threshold: float, mode: str) -> dict:
     """
     Returns {"rfdetr": [...], "vlm": [...], "combined": [...]} — detection
     dicts (each may carry a private "_gt" key: the GTBox it was simulated
-    from, or None for stray false positives). "combined" is what gets matched
-    against ground truth for the pipeline's real end-to-end metrics and drawn
-    on the annotated output image.
+    from, or None for stray false positives / real detections). "combined" is
+    what gets matched against ground truth for the pipeline's real end-to-end
+    metrics and drawn on the annotated output image.
     """
-    rfdetr_dets = simulate_rfdetr_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+    rfdetr_dets = _get_rfdetr_multi_result(image_bytes, gt_boxes, modality, rfdetr_model)
 
     if mode == "VLM Only":
         vlm_dets = []
         for d in rfdetr_dets:
             true_class = d["_gt"].class_name if d.get("_gt") else None
-            v = simulate_vlm_for_detection(image_bytes, d, vlm_model, true_class=true_class)
+            v = _get_vlm_multi_result(image_bytes, d, vlm_model, true_class=true_class)
             v["_gt"] = d.get("_gt")
             v["cascaded"] = True
             vlm_dets.append(v)
@@ -243,7 +292,7 @@ def run_batch_cascade(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_
     for d in rfdetr_dets:
         if d["confidence"] < threshold:
             true_class = d["_gt"].class_name if d.get("_gt") else None
-            v = simulate_vlm_for_detection(image_bytes, d, vlm_model, true_class=true_class)
+            v = _get_vlm_multi_result(image_bytes, d, vlm_model, true_class=true_class)
             v["_gt"] = d.get("_gt")
             v["cascaded"] = True
             v["rfdetr_confidence"] = d["confidence"]

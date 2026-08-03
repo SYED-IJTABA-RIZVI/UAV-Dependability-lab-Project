@@ -24,6 +24,13 @@ services:
       - "8501:8501"
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-uav}:${POSTGRES_PASSWORD:-uav}@postgres:5432/${POSTGRES_DB:-uav}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      RFDETR_SERVICE_URL: http://rfdetr:8000
+      RFDETR_RGB_CHECKPOINT_PATH: /weights/rfdetr_rgb.pt
+      RFDETR_IR_CHECKPOINT_PATH: /weights/rfdetr_ir.pt
+      VLM_INTERNVL3_URL: http://vlm-internvl3:8000
+      VLM_DEEPSEEK_VL_URL: http://vlm-deepseek-vl:8000
+      VLM_BLIP2_URL: http://vlm-blip2:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -31,5 +38,79 @@ services:
       - ./app:/app
       - ./data:/data
 
+  # --- GPU profile: real RFDETR + self-hosted VLMs. Not part of the default
+  # `docker compose up` (which stays mock-fallback and works on any machine)
+  # — bring these up on the GPU host with:
+  #   docker compose --profile gpu up -d --build
+  rfdetr:
+    profiles: ["gpu"]
+    build:
+      context: ./app/rfdetr_server
+    restart: unless-stopped
+    environment:
+      RFDETR_RGB_CHECKPOINT_PATH: /weights/rfdetr_rgb.pt
+      RFDETR_IR_CHECKPOINT_PATH: /weights/rfdetr_ir.pt
+    volumes:
+      - ./weights:/weights
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vlm-internvl3:
+    profiles: ["gpu"]
+    build:
+      context: ./app/vlm_server
+    restart: unless-stopped
+    environment:
+      MODEL_ID: OpenGVLab/InternVL3-8B
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vlm-deepseek-vl:
+    profiles: ["gpu"]
+    build:
+      context: ./app/vlm_server
+    restart: unless-stopped
+    environment:
+      MODEL_ID: deepseek-ai/deepseek-vl2-tiny
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  vlm-blip2:
+    profiles: ["gpu"]
+    build:
+      context: ./app/vlm_server
+    restart: unless-stopped
+    environment:
+      MODEL_ID: Salesforce/blip2-opt-2.7b
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
 volumes:
   pgdata:
+  hf_cache:

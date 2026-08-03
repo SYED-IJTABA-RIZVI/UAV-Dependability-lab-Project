@@ -24,3 +24,8 @@ venv/
 # Host folder mounted into the app container for FOLDER/TEST FOLDER inputs
 data/*
 !data/.gitkeep
+
+# RFDETR checkpoints (*.pt already ignored above; this also covers any other
+# file dropped here)
+weights/*
+!weights/.gitkeep

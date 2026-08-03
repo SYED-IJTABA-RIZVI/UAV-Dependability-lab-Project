@@ -148,9 +148,14 @@ def get_session():
 
 
 def _add_detection(session, image: Image, det: dict, gt_row_by_id: dict | None = None) -> None:
+    """matched_gt_id/iou/match_result come from the actual combined-scope IoU
+    match (stashed as "_matched_gt_obj"/"_iou"/"_match_result" by save_eval_run's
+    tp loop), not the mock's "_gt" simulation hint — those differ whenever the
+    match was a wrong-class localization, and real (non-mock) detections never
+    carry "_gt" at all."""
     matched_gt_id, iou_val, match_result = None, None, None
     if gt_row_by_id is not None:
-        gt_obj = det.get("_gt")
+        gt_obj = det.get("_matched_gt_obj")
         if gt_obj is not None and id(gt_obj) in gt_row_by_id:
             matched_gt_id = gt_row_by_id[id(gt_obj)].id
             iou_val = det.get("_iou")
@@ -269,6 +274,7 @@ def save_eval_run(test_folder_path: str, output_path: str, modality: str, rfdetr
                     for pred, gt, iou_val in match.tp:
                         pred["_iou"] = iou_val
                         pred["_match_result"] = "TP"
+                        pred["_matched_gt_obj"] = gt
                         row = gt_row_by_id.get(id(gt))
                         if row is not None:
                             row.matched = True

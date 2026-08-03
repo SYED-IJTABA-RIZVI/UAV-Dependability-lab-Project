@@ -37,6 +37,21 @@ def _safe_idx(class_map: list, name: str):
     return class_map.index(name) if name in class_map else None
 
 
+def _find_gt_for_detection(det: dict, gt_boxes: list, iou_threshold: float):
+    """Which GT box (if any) this detection's bbox actually localizes.
+    Mock detections carry a "_gt" hint (the exact GTBox they were jittered
+    from); real detections don't, so we fall back to a genuine IoU search —
+    same threshold/logic real end-to-end matching uses."""
+    if det.get("_gt") is not None:
+        return det["_gt"]
+    best_gt, best_iou = None, 0.0
+    for gt in gt_boxes:
+        score = iou(det["bbox"], gt.bbox)
+        if score > best_iou:
+            best_gt, best_iou = gt, score
+    return best_gt if best_iou >= iou_threshold else None
+
+
 def run_folder(folder_path: str, output_path: str, modality: str, rfdetr_model: str,
                vlm_model: str, threshold: float, mode: str) -> dict:
     input_dir = Path(folder_path)
@@ -204,10 +219,10 @@ def run_test_folder(test_folder_path: str, output_path: str, modality: str, rfde
                     confusion_totals["rfdetr"][gi, pi] += 1
 
         # VLM-scope metrics: correction accuracy on exactly the cascaded subset
-        # (VLM never re-localizes, so this is class-match on the RFDETR-proposed box,
-        # not a fresh IoU search)
+        # (VLM never re-localizes, so this is class-match on the RFDETR-proposed
+        # box — via the mock's "_gt" hint when present, else a real IoU lookup)
         for d in vlm_dets:
-            gt = d.get("_gt")
+            gt = _find_gt_for_detection(d, gt_boxes, iou_threshold)
             if gt is not None:
                 iv = iou(d["bbox"], gt.bbox)
                 gi = _safe_idx(class_map, gt.class_name)
