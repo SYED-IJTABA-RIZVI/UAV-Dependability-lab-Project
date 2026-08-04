@@ -177,18 +177,19 @@ def _add_detection(session, image: Image, det: dict, gt_row_by_id: dict | None =
 
 
 def save_single_image_run(filename: str, modality: str, rfdetr_model: str, vlm_model: str,
-                           threshold: float, mode: str, cascade_result: dict) -> None:
+                           threshold: float, mode: str, cascade_result: dict,
+                           output_path: str | None = None, annotated_path: str | None = None) -> None:
     try:
         with get_session() as session:
             run = Run(
-                mode="single", source_path=filename, output_path=None,
+                mode="single", source_path=filename, output_path=output_path,
                 pipeline_mode=mode, confidence_cutoff=threshold,
                 rfdetr_model=rfdetr_model, vlm_model=vlm_model,
             )
             session.add(run)
             session.flush()
 
-            image = Image(run_id=run.id, filename=filename, path=None, modality=modality)
+            image = Image(run_id=run.id, filename=filename, path=annotated_path, modality=modality)
             session.add(image)
             session.flush()
 
@@ -216,7 +217,8 @@ def save_folder_run(folder_path: str, output_path: str, modality: str, rfdetr_mo
             session.flush()
 
             for item in per_image_results:
-                image = Image(run_id=run.id, filename=item["filename"], path=None, modality=modality)
+                image = Image(run_id=run.id, filename=item["filename"],
+                               path=item.get("annotated_path"), modality=modality)
                 session.add(image)
                 session.flush()
 
@@ -251,7 +253,8 @@ def save_eval_run(test_folder_path: str, output_path: str, modality: str, rfdetr
             session.flush()
 
             for item in per_image_results:
-                image = Image(run_id=run.id, filename=item["filename"], path=None, modality=modality)
+                image = Image(run_id=run.id, filename=item["filename"],
+                               path=item.get("annotated_path"), modality=modality)
                 session.add(image)
                 session.flush()
 
@@ -298,3 +301,75 @@ def save_eval_run(test_folder_path: str, output_path: str, modality: str, rfdetr
                 ))
     except Exception:
         pass
+
+
+def list_runs(limit: int = 50) -> list[dict]:
+    """Most-recent-first summary of past runs, for the History tab's run picker."""
+    try:
+        with get_session() as session:
+            runs = session.query(Run).order_by(Run.created_at.desc()).limit(limit).all()
+            return [
+                {
+                    "id": r.id, "mode": r.mode, "created_at": r.created_at,
+                    "pipeline_mode": r.pipeline_mode, "rfdetr_model": r.rfdetr_model,
+                    "vlm_model": r.vlm_model, "confidence_cutoff": r.confidence_cutoff,
+                    "iou_threshold": r.iou_threshold, "source_path": r.source_path,
+                    "output_path": r.output_path, "num_images": len(r.images),
+                }
+                for r in runs
+            ]
+    except Exception:
+        return []
+
+
+def get_run_detail(run_id: int) -> dict | None:
+    """Full detail for one run — images/detections/ground-truths/metrics/undetected
+    breakdown — for the History tab's drill-down view."""
+    try:
+        with get_session() as session:
+            run = session.get(Run, run_id)
+            if run is None:
+                return None
+
+            images = []
+            for img in run.images:
+                detections = [
+                    {
+                        "source": d.source, "class_name": d.class_name, "confidence": d.confidence,
+                        "bbox": (d.bbox_x, d.bbox_y, d.bbox_w, d.bbox_h), "latency_ms": d.latency_ms,
+                        "cascaded": d.cascaded, "iou": d.iou, "match_result": d.match_result,
+                        "reasoning": (d.vlm_payload or {}).get("reasoning"),
+                    }
+                    for d in img.detections
+                ]
+                ground_truths = [
+                    {"class_name": g.class_name, "bbox": (g.bbox_x, g.bbox_y, g.bbox_w, g.bbox_h),
+                     "matched": g.matched}
+                    for g in img.ground_truths
+                ]
+                images.append({
+                    "filename": img.filename, "path": img.path, "modality": img.modality,
+                    "detections": detections, "ground_truths": ground_truths,
+                })
+
+            metrics = [
+                {"scope": m.scope, "precision": m.precision, "recall": m.recall, "f1": m.f1,
+                 "accuracy": m.accuracy, "mean_iou": m.mean_iou,
+                 "avg_time_per_image_ms": m.avg_time_per_image_ms, "images_per_sec": m.images_per_sec}
+                for m in run.metrics
+            ]
+            undetected = [
+                {"class_name": u.class_name, "count": u.count, "percentage": u.percentage}
+                for u in run.undetected
+            ]
+
+            return {
+                "id": run.id, "mode": run.mode, "created_at": run.created_at,
+                "pipeline_mode": run.pipeline_mode, "rfdetr_model": run.rfdetr_model,
+                "vlm_model": run.vlm_model, "confidence_cutoff": run.confidence_cutoff,
+                "iou_threshold": run.iou_threshold, "source_path": run.source_path,
+                "output_path": run.output_path, "images": images, "metrics": metrics,
+                "undetected": undetected,
+            }
+    except Exception:
+        return None

@@ -1,4 +1,5 @@
 import io
+from pathlib import Path
 
 import streamlit as st
 from PIL import Image
@@ -8,6 +9,8 @@ import db
 from drawing import draw_single
 from mock_backend import CLASS_COLOR, run_cascade
 from style import CSS
+
+DEFAULT_SINGLE_OUTPUT_DIR = "outputs/single_images"
 
 st.set_page_config(page_title="Sky Object Detection Tool", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
@@ -76,12 +79,15 @@ with left:
     )
 
     st.markdown('<div class="source-tabs">', unsafe_allow_html=True)
-    tab = st.radio("Source", ["IMAGE", "FOLDER", "TEST FOLDER"], horizontal=True,
+    tab = st.radio("Source", ["IMAGE", "FOLDER", "TEST FOLDER", "HISTORY"], horizontal=True,
                     label_visibility="collapsed", key="source_tab")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('<div class="section-label">MODALITY</div>', unsafe_allow_html=True)
-    modality = st.radio("Modality", ["RGB", "IR / THERMAL"], horizontal=True, label_visibility="collapsed")
+    if tab != "HISTORY":
+        st.markdown('<div class="section-label">MODALITY</div>', unsafe_allow_html=True)
+        modality = st.radio("Modality", ["RGB", "IR / THERMAL"], horizontal=True, label_visibility="collapsed")
+    else:
+        modality = "RGB"
 
     if tab == "IMAGE":
         uploaded = st.file_uploader("Upload image", type=["png", "jpg", "jpeg", "webp"],
@@ -103,6 +109,11 @@ with left:
                 """,
                 unsafe_allow_html=True,
             )
+        st.markdown('<div class="section-label">OUTPUT LOCATION PATH (optional)</div>', unsafe_allow_html=True)
+        single_output_path = st.text_input(
+            "Output path", placeholder=f"default: {DEFAULT_SINGLE_OUTPUT_DIR}",
+            label_visibility="collapsed", key="single_output",
+        )
 
     elif tab == "FOLDER":
         st.markdown('<div class="section-label">IMAGE FOLDER PATH</div>', unsafe_allow_html=True)
@@ -111,7 +122,7 @@ with left:
         folder_output_path = st.text_input("Output path", placeholder="/path/to/output",
                                             label_visibility="collapsed", key="folder_output")
 
-    else:  # TEST FOLDER
+    elif tab == "TEST FOLDER":
         st.markdown('<div class="section-label">TEST FOLDER PATH</div>', unsafe_allow_html=True)
         test_folder_path = st.text_input("Test folder path", placeholder="/path/to/test_folder",
                                           label_visibility="collapsed")
@@ -123,10 +134,29 @@ with left:
         iou_threshold = st.slider("IoU threshold", min_value=0.1, max_value=0.9, value=0.5, step=0.05,
                                    label_visibility="collapsed")
 
+    else:  # HISTORY
+        st.markdown(
+            '<div class="panel-sub">Browse past runs (single image, folder, test-folder eval) '
+            'saved to Postgres.</div>',
+            unsafe_allow_html=True,
+        )
+
     st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------- RIGHT (part 1): DETECTION PIPELINE ----------
+mode, rfdetr_model, vlm_model, threshold, analyze_disabled = None, None, None, None, True
+
 with right:
+  if tab == "HISTORY":
+    st.markdown('<div class="sdt-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title">&#9670; HISTORY</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="panel-sub">Every single-image, folder, and test-folder run is persisted '
+        'to Postgres — pick one on the left to inspect it.</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
+  else:
     st.markdown('<div class="sdt-panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">&#9670; DETECTION PIPELINE</div>', unsafe_allow_html=True)
     st.markdown(
@@ -222,8 +252,21 @@ with center:
             st.session_state.result = run_cascade(
                 st.session_state.image_bytes, modality, rfdetr_model, vlm_model, threshold, mode
             )
+            res = st.session_state.result
+
+            out_dir = Path(single_output_path) if single_output_path else Path(DEFAULT_SINGLE_OUTPUT_DIR)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            annotated_img = Image.open(io.BytesIO(st.session_state.image_bytes))
+            if res.get("rfdetr") is not None:
+                r = res["rfdetr"]
+                lbl = f"{r['class_name']} · {r['confidence']:.2f} · RFDETR"
+                annotated_img = draw_single(annotated_img, r["bbox"], lbl, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
+            annotated_path = out_dir / st.session_state.filename
+            annotated_img.convert("RGB").save(annotated_path)
+
             db.save_single_image_run(st.session_state.filename, modality, rfdetr_model, vlm_model,
-                                      threshold, mode, st.session_state.result)
+                                      threshold, mode, res,
+                                      output_path=str(out_dir), annotated_path=str(annotated_path))
 
         result = st.session_state.result
 
@@ -278,7 +321,7 @@ with center:
                 path = next(im["annotated_path"] for im in fr["images"] if im["filename"] == picked)
                 st.image(Image.open(path), use_container_width=True)
 
-    else:  # TEST FOLDER
+    elif tab == "TEST FOLDER":
         st.markdown('<div class="ws-eyebrow">ACTIVE WORKSPACE</div><div class="ws-title">Test Folder Evaluation</div>',
                     unsafe_allow_html=True)
 
@@ -302,6 +345,56 @@ with center:
                 st.image(Image.open(path), use_container_width=True)
                 st.caption("Dashed gray = ground truth · solid color = prediction (tagged RFDETR/VLM) "
                            "· red UNDETECTED = ground truth the pipeline never matched.")
+
+    else:  # HISTORY
+        st.markdown('<div class="ws-eyebrow">ACTIVE WORKSPACE</div><div class="ws-title">Run History</div>',
+                    unsafe_allow_html=True)
+
+        if not db_ready:
+            st.markdown(
+                '<div style="padding:60px; text-align:center; color:var(--text-low); '
+                'font-family:var(--mono); background:var(--panel-alt); border-radius:4px;">'
+                'DB OFFLINE &mdash; NO HISTORY AVAILABLE</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            runs = db.list_runs()
+            if not runs:
+                st.markdown(
+                    '<div style="padding:60px; text-align:center; color:var(--text-low); '
+                    'font-family:var(--mono); background:var(--panel-alt); border-radius:4px;">'
+                    'NO RUNS RECORDED YET</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                run_labels = {
+                    r["id"]: (f"#{r['id']} · {r['created_at']:%Y-%m-%d %H:%M} · {r['mode'].upper()} · "
+                               f"{r['num_images']} img · {r['pipeline_mode']}")
+                    for r in runs
+                }
+                picked_id = st.selectbox("Pick a run", list(run_labels.keys()),
+                                          format_func=lambda i: run_labels[i], label_visibility="collapsed")
+                detail = db.get_run_detail(picked_id)
+                st.session_state.history_detail = detail
+
+                if detail:
+                    st.markdown(
+                        f'<div class="ws-footer">MODE: {detail["mode"].upper()} &middot; '
+                        f'RFDETR: {detail["rfdetr_model"]} &middot; VLM: {detail["vlm_model"]} &middot; '
+                        f'CUTOFF: {detail["confidence_cutoff"]:.2f} &middot; '
+                        f'SOURCE: {detail["source_path"] or "—"} &middot; '
+                        f'OUTPUT: {detail["output_path"] or "—"}</div>',
+                        unsafe_allow_html=True,
+                    )
+                    if detail["images"]:
+                        names = [im["filename"] for im in detail["images"]]
+                        picked_img = st.selectbox("Preview image", names, label_visibility="collapsed",
+                                                   key="history_img_pick")
+                        rec = next(im for im in detail["images"] if im["filename"] == picked_img)
+                        if rec["path"] and Path(rec["path"]).exists():
+                            st.image(Image.open(rec["path"]), use_container_width=True)
+                        else:
+                            st.caption("Annotated image not found on disk (path may be from another machine).")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -361,7 +454,7 @@ with right:
                 st.download_button("DOWNLOAD results.csv", f, file_name="results.csv", use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-    else:  # TEST FOLDER
+    elif tab == "TEST FOLDER":
         er = st.session_state.eval_result
         if er is not None:
             st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
@@ -420,5 +513,43 @@ with right:
                 with open(path, "rb") as f:
                     st.download_button(f"DOWNLOAD {label}", f, file_name=path.split("/")[-1],
                                         use_container_width=True, key=f"dl_{label}")
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    else:  # HISTORY
+        detail = st.session_state.get("history_detail")
+        if detail is not None:
+            st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
+
+            if detail["metrics"]:
+                st.markdown('<div class="section-label">SCOPE METRICS</div>', unsafe_allow_html=True)
+                scope_rows = [
+                    {"Scope": m["scope"].capitalize(), "Precision": round(m["precision"], 2),
+                     "Recall": round(m["recall"], 2), "F1": round(m["f1"], 2),
+                     "Accuracy": round(m["accuracy"], 2), "Mean IoU": round(m["mean_iou"], 2),
+                     "Avg time/img (ms)": round(m["avg_time_per_image_ms"], 1)}
+                    for m in detail["metrics"]
+                ]
+                st.dataframe(scope_rows, hide_index=True, use_container_width=True)
+
+            if detail["undetected"]:
+                st.markdown('<div class="section-label">UNDETECTED &mdash; BY CLASS (% OF UNDETECTED)</div>',
+                             unsafe_allow_html=True)
+                st.bar_chart({u["class_name"]: u["percentage"] for u in detail["undetected"]})
+
+            st.markdown('<div class="section-label">DETECTIONS (SELECTED IMAGE)</div>', unsafe_allow_html=True)
+            picked_img = st.session_state.get("history_img_pick")
+            rec = next((im for im in detail["images"] if im["filename"] == picked_img), None)
+            if rec and rec["detections"]:
+                det_rows = [
+                    {"Source": d["source"], "Class": d["class_name"], "Confidence": round(d["confidence"], 2),
+                     "Cascaded": d["cascaded"], "IoU": round(d["iou"], 2) if d["iou"] is not None else "",
+                     "Match": d["match_result"] or "", "Latency (ms)": d["latency_ms"],
+                     "VLM reasoning": d["reasoning"] or ""}
+                    for d in rec["detections"]
+                ]
+                st.dataframe(det_rows, hide_index=True, use_container_width=True)
+            else:
+                st.caption("No detections recorded for this image.")
 
             st.markdown("</div>", unsafe_allow_html=True)

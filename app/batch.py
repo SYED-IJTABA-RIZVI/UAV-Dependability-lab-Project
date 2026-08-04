@@ -93,7 +93,7 @@ def run_folder(folder_path: str, output_path: str, modality: str, rfdetr_model: 
             "bbox_w": final["bbox"][2], "bbox_h": final["bbox"][3],
             "latency_ms": final["latency_ms"],
         })
-        per_image_results.append({"filename": p.name, "result": result})
+        per_image_results.append({"filename": p.name, "result": result, "annotated_path": str(annotated_path)})
         images_ui.append({"filename": p.name, "annotated_path": str(annotated_path)})
 
     results_csv = out_dir / "results.csv"
@@ -293,6 +293,7 @@ def run_test_folder(test_folder_path: str, output_path: str, modality: str, rfde
             "combined": combined_dets,
             "combined_match": c["match"],
             "time_ms": time_ms,
+            "annotated_path": str(annotated_path),
         })
 
     scope_metrics = {scope: _finalize_scope(agg[scope]) for scope in ("rfdetr", "vlm", "combined")}
