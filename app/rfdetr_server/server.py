@@ -58,6 +58,7 @@ async def detect(image: UploadFile = File(...), modality: str = Form(...)):
     img = Image.open(io.BytesIO(await image.read())).convert("RGB")
     w, h = img.size
     result = model.predict(img, threshold=CONFIDENCE_THRESHOLD)
+    print(f"[DEBUG] input image size: w={w} h={h}", flush=True)
 
     detections = []
     for xyxy, confidence, class_id in zip(result.xyxy, result.confidence, result.class_id):
@@ -65,10 +66,13 @@ async def detect(image: UploadFile = File(...), modality: str = Form(...)):
         if class_id < 0 or class_id >= len(CLASSES):
             continue
         x1, y1, x2, y2 = xyxy
+        bbox = [float(x1) / w, float(y1) / h, float(x2 - x1) / w, float(y2 - y1) / h]
+        print(f"[DEBUG] class={CLASSES[class_id]} conf={float(confidence):.2f} "
+              f"raw_xyxy=({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}) -> norm_bbox={bbox}", flush=True)
         detections.append({
             "class_name": CLASSES[class_id],
             "confidence": float(confidence),
-            "bbox": [float(x1) / w, float(y1) / h, float(x2 - x1) / w, float(y2 - y1) / h],
+            "bbox": bbox,
         })
 
     return {"detections": detections}
