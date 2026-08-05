@@ -19,7 +19,7 @@ import sys
 
 from PIL import Image, ImageDraw
 
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]  # must match server.py
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]  # must match server.py
 CHECKPOINT_ENV = {
     "RGB": "RFDETR_RGB_CHECKPOINT_PATH",
     "IR / THERMAL": "RFDETR_IR_CHECKPOINT_PATH",

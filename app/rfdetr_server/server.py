@@ -4,10 +4,8 @@ trained checkpoints (RGB and IR/Thermal). NOT verified end-to-end — written
 on a machine with no GPU and no checkpoint file to load; see SETUP.md for the
 real first run on the GPU host.
 
-Assumes the checkpoints were trained with class ids in the same order used
-everywhere else in this app (labels.py, mock_backend.CLASSES):
-0=Drone, 1=Bird, 2=Helicopter, 3=Airplane. If the lab's training config used
-a different order, fix CLASSES below to match.
+Class order confirmed against the lab's real training labels (alphabetical):
+0=Airplane, 1=Bird, 2=Drone, 3=Helicopter.
 """
 
 import io
@@ -16,7 +14,7 @@ import os
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from PIL import Image
 
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 CONFIDENCE_THRESHOLD = float(os.environ.get("RFDETR_THRESHOLD", "0.3"))
 
 CHECKPOINT_ENV = {

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import yaml
 
-DEFAULT_CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
+DEFAULT_CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]  # lab's real training order (alphabetical)
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 

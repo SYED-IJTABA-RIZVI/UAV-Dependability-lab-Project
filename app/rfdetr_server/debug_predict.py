@@ -21,7 +21,7 @@ from pathlib import Path
 
 from PIL import Image
 
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]  # must match server.py
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]  # must match server.py
 DEFAULT_CLASSES = CLASSES
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
