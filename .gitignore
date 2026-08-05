@@ -29,7 +29,7 @@ compose-rendered.yml
 data/*
 !data/.gitkeep
 
-# RFDETR checkpoints (*.pt already ignored above; this also covers any other
+# YOLO checkpoints (*.pt already ignored above; this also covers any other
 # file dropped here)
 weights/*
 !weights/.gitkeep

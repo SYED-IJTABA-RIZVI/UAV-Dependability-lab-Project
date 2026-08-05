@@ -5,14 +5,15 @@ callers in mock_backend.py catch and fall back to the simulator, so a missing
 checkpoint / unreachable local VLM service / OpenRouter timeout degrades
 gracefully instead of crashing the app.
 
-RFDETR and the 3 self-hosted VLMs (InternVL3, DeepSeek-VL, BLIP-2) run as
-separate GPU-enabled containers (see app/rfdetr_server/, app/vlm_server/,
-docker-compose.yml's "gpu" profile) rather than in-process here, because the
-main `app` service must stay GPU-reservation-free so `docker compose up`
-keeps working on machines with no GPU. Qwen2.5-VL is the one VLM with a real
-hosted API (OpenRouter) and is called directly from here.
+YOLO (YOLOv12 for RGB, YOLOv10 for IR/Thermal) and the 3 self-hosted VLMs
+(InternVL3, DeepSeek-VL, BLIP-2) run as separate GPU-enabled containers (see
+app/yolo_server/, app/vlm_server/, docker-compose.yml's "gpu" profile) rather
+than in-process here, because the main `app` service must stay
+GPU-reservation-free so `docker compose up` keeps working on machines with no
+GPU. Qwen2.5-VL is the one VLM with a real hosted API (OpenRouter) and is
+called directly from here.
 
-NOTE: RFDETR and the 3 local VLM servers cannot be exercised on a machine
+NOTE: YOLO and the 3 local VLM servers cannot be exercised on a machine
 without a GPU. This module is written to each library's documented API but
 the first real end-to-end test is on the GPU host — see SETUP.md.
 """
@@ -29,7 +30,7 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 REQUEST_TIMEOUT_S = 20
 
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 
 VLM_LOCAL_SERVICE_ENV = {
     "InternVL3": "VLM_INTERNVL3_URL",
@@ -37,9 +38,9 @@ VLM_LOCAL_SERVICE_ENV = {
     "BLIP-2": "VLM_BLIP2_URL",
 }
 
-RFDETR_CHECKPOINT_ENV = {
-    "RGB": "RFDETR_RGB_CHECKPOINT_PATH",
-    "IR / THERMAL": "RFDETR_IR_CHECKPOINT_PATH",
+YOLO_CHECKPOINT_ENV = {
+    "RGB": "YOLO_RGB_CHECKPOINT_PATH",
+    "IR / THERMAL": "YOLO_IR_CHECKPOINT_PATH",
 }
 
 
@@ -163,21 +164,22 @@ def run_real_vlm(image_bytes: bytes, vlm_name: str, crop_bbox=None) -> dict:
     }
 
 
-def rfdetr_available(modality: str) -> bool:
-    env_name = RFDETR_CHECKPOINT_ENV.get(modality)
+def yolo_available(modality: str) -> bool:
+    env_name = YOLO_CHECKPOINT_ENV.get(modality)
     if not env_name:
         return False
-    return bool(os.environ.get("RFDETR_SERVICE_URL")) and bool(os.environ.get(env_name))
+    return bool(os.environ.get("YOLO_SERVICE_URL")) and bool(os.environ.get(env_name))
 
 
-def run_real_rfdetr(image_bytes: bytes, modality: str) -> list:
+def run_real_yolo(image_bytes: bytes, modality: str) -> list:
     """
-    Calls the rfdetr service (app/rfdetr_server/), which loads the checkpoint
-    named by RFDETR_RGB_CHECKPOINT_PATH / RFDETR_IR_CHECKPOINT_PATH.
+    Calls the yolo service (app/yolo_server/), which loads the checkpoint
+    named by YOLO_RGB_CHECKPOINT_PATH / YOLO_IR_CHECKPOINT_PATH (YOLOv12 for
+    RGB, YOLOv10 for IR/Thermal).
     Raises on any failure — caller falls back to the mock simulator.
     Returns a list of detection dicts, same shape as mock_backend's.
     """
-    base_url = os.environ["RFDETR_SERVICE_URL"]
+    base_url = os.environ["YOLO_SERVICE_URL"]
     start = time.monotonic()
     resp = requests.post(
         f"{base_url}/detect",
@@ -191,9 +193,9 @@ def run_real_rfdetr(image_bytes: bytes, modality: str) -> list:
 
     for det in detections:
         if det["class_name"] not in CLASSES:
-            raise ValueError(f"RFDETR returned unknown class: {det['class_name']!r}")
-        det["source"] = "RFDETR"
-        det["model_name"] = f"RFDETR-{modality} (real)"
+            raise ValueError(f"YOLO returned unknown class: {det['class_name']!r}")
+        det["source"] = "YOLO"
+        det["model_name"] = f"YOLO-{modality} (real)"
         det["bbox"] = tuple(det["bbox"])
         det.setdefault("latency_ms", latency_ms)
 

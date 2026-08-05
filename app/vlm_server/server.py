@@ -29,7 +29,7 @@ from fastapi import FastAPI, File, Form, UploadFile
 from PIL import Image
 
 MODEL_ID = os.environ.get("MODEL_ID", "Salesforce/blip2-opt-2.7b")
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 
 app = FastAPI()
 _state = {"family": None, "model": None, "processor": None, "tokenizer": None}

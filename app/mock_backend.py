@@ -1,7 +1,7 @@
 """
-Inference layer. run_rfdetr()/run_vlm() (and their multi-object counterparts)
+Inference layer. run_yolo()/run_vlm() (and their multi-object counterparts)
 are the mock simulator — still used as an automatic fallback. Real inference
-is attempted first via real_inference.py whenever it's configured (RFDETR
+is attempted first via real_inference.py whenever it's configured (YOLO
 checkpoint present + service reachable, or a VLM API key / local service URL
 set); any failure there (unreachable service, timeout, missing checkpoint)
 silently falls back to the simulator below rather than crashing the app.
@@ -12,7 +12,7 @@ import random
 
 import real_inference
 
-CLASSES = ["Drone", "Bird", "Helicopter", "Airplane"]
+CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 
 CLASS_COLOR = {
     "Drone": "#B23A31",
@@ -35,7 +35,7 @@ def _seed_from(*parts) -> random.Random:
     return random.Random(int(digest[:16], 16))
 
 
-def run_rfdetr(image_bytes: bytes, modality: str, model_name: str) -> dict:
+def run_yolo(image_bytes: bytes, modality: str, model_name: str) -> dict:
     rng = _seed_from(hashlib.sha256(image_bytes).hexdigest(), modality, model_name)
 
     class_name = rng.choice(CLASSES)
@@ -47,7 +47,7 @@ def run_rfdetr(image_bytes: bytes, modality: str, model_name: str) -> dict:
     box_y = rng.uniform(0.05, 0.95 - box_h)
 
     return {
-        "source": "RFDETR",
+        "source": "YOLO",
         "model_name": model_name,
         "class_name": class_name,
         "confidence": confidence,
@@ -81,25 +81,25 @@ def _get_vlm_result(image_bytes: bytes, vlm_model: str) -> dict:
     return run_vlm(image_bytes, vlm_model)
 
 
-def _get_rfdetr_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> dict:
-    if real_inference.rfdetr_available(modality):
+def _get_yolo_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> dict:
+    if real_inference.yolo_available(modality):
         try:
-            detections = real_inference.run_real_rfdetr(image_bytes, modality)
+            detections = real_inference.run_real_yolo(image_bytes, modality)
             if detections:
                 return max(detections, key=lambda d: d["confidence"])
             return {
-                "source": "RFDETR", "model_name": rfdetr_model, "class_name": "No Detection",
+                "source": "YOLO", "model_name": rfdetr_model, "class_name": "No Detection",
                 "confidence": 0.0, "bbox": (0.0, 0.0, 1.0, 1.0), "latency_ms": 0,
             }
         except Exception:
             pass
-    return run_rfdetr(image_bytes, modality, rfdetr_model)
+    return run_yolo(image_bytes, modality, rfdetr_model)
 
 
 def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model: str,
                  threshold: float, mode: str) -> dict:
     """
-    mode: "RFDETR Only" | "VLM Only" | "RFDETR & VLM (Adaptive Fallback)"
+    mode: "YOLO Only" | "VLM Only" | "YOLO & VLM (Adaptive Fallback)"
     """
     result = {"rfdetr": None, "vlm": None, "cascaded": False, "final": None}
 
@@ -109,11 +109,11 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
         result["final"] = vlm_res
         return result
 
-    rfdetr_res = _get_rfdetr_result(image_bytes, modality, rfdetr_model)
+    rfdetr_res = _get_yolo_result(image_bytes, modality, rfdetr_model)
     result["rfdetr"] = rfdetr_res
     result["final"] = rfdetr_res
 
-    if mode == "RFDETR Only":
+    if mode == "YOLO Only":
         return result
 
     # Adaptive fallback
@@ -129,17 +129,17 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
 # ---------------------------------------------------------------------------
 # Multi-object simulation for FOLDER / TEST FOLDER batch runs.
 #
-# Real RFDETR/VLM inference produces zero or more detections per image. The
+# Real YOLO/VLM inference produces zero or more detections per image. The
 # single-detection functions above are kept as-is for the IMAGE tab; these
 # functions simulate a believable multi-object detector instead, so batch.py
 # can exercise the full matching/metrics/CSV/heatmap pipeline before the real
-# model exists. Swap point for the real system: replace simulate_rfdetr_multi
-# with real batched RFDETR inference (returning the same detection dict shape,
+# model exists. Swap point for the real system: replace simulate_yolo_multi
+# with real batched YOLO inference (returning the same detection dict shape,
 # each optionally carrying which GTBox it was matched against isn't something
 # a real model would know — that hint is dropped once real inference lands).
 # ---------------------------------------------------------------------------
 
-_MISS_PROB = 0.18          # probability RFDETR fails to propose a box for a given GT object
+_MISS_PROB = 0.18          # probability YOLO fails to propose a box for a given GT object
 _CORRECT_CLASS_PROB = 0.85  # probability a proposed box gets the right class
 _STRAY_FP_PROB = 0.30       # probability of at least one spurious false-positive box per image
 _VLM_CORRECT_PROB = 0.82    # probability the VLM fixes a detection to the true class
@@ -159,7 +159,7 @@ def _jitter_bbox(rng: random.Random, bbox) -> tuple:
     return (nx, ny, nw, nh)
 
 
-def simulate_rfdetr_multi(image_bytes: bytes, gt_boxes: list, modality: str, model_name: str) -> list:
+def simulate_yolo_multi(image_bytes: bytes, gt_boxes: list, modality: str, model_name: str) -> list:
     img_hash = hashlib.sha256(image_bytes).hexdigest()
     rng = _seed_from(img_hash, modality, model_name, "multi")
 
@@ -177,7 +177,7 @@ def simulate_rfdetr_multi(image_bytes: bytes, gt_boxes: list, modality: str, mod
             confidence = round(rng.uniform(0.15, 0.55), 2)
 
         detections.append({
-            "source": "RFDETR",
+            "source": "YOLO",
             "model_name": model_name,
             "class_name": class_name,
             "confidence": confidence,
@@ -193,7 +193,7 @@ def simulate_rfdetr_multi(image_bytes: bytes, gt_boxes: list, modality: str, mod
         box_x = rng.uniform(0.0, 1.0 - box_w)
         box_y = rng.uniform(0.0, 1.0 - box_h)
         detections.append({
-            "source": "RFDETR",
+            "source": "YOLO",
             "model_name": model_name,
             "class_name": class_name,
             "confidence": round(rng.uniform(0.15, 0.55), 2),
@@ -231,10 +231,10 @@ def simulate_vlm_for_detection(image_bytes: bytes, detection: dict, vlm_model: s
     }
 
 
-def _get_rfdetr_multi_result(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_model: str) -> list:
-    if real_inference.rfdetr_available(modality):
+def _get_yolo_multi_result(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_model: str) -> list:
+    if real_inference.yolo_available(modality):
         try:
-            detections = real_inference.run_real_rfdetr(image_bytes, modality)
+            detections = real_inference.run_real_yolo(image_bytes, modality)
             for d in detections:
                 # Real detections carry no "which GT box was this simulated from"
                 # hint — batch.py's VLM-scope metric falls back to a genuine
@@ -244,7 +244,7 @@ def _get_rfdetr_multi_result(image_bytes: bytes, gt_boxes: list, modality: str, 
             return detections
         except Exception:
             pass
-    return simulate_rfdetr_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+    return simulate_yolo_multi(image_bytes, gt_boxes, modality, rfdetr_model)
 
 
 def _get_vlm_multi_result(image_bytes: bytes, detection: dict, vlm_model: str,
@@ -268,7 +268,7 @@ def run_batch_cascade(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_
     what gets matched against ground truth for the pipeline's real end-to-end
     metrics and drawn on the annotated output image.
     """
-    rfdetr_dets = _get_rfdetr_multi_result(image_bytes, gt_boxes, modality, rfdetr_model)
+    rfdetr_dets = _get_yolo_multi_result(image_bytes, gt_boxes, modality, rfdetr_model)
 
     if mode == "VLM Only":
         vlm_dets = []
@@ -283,7 +283,7 @@ def run_batch_cascade(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_
     for d in rfdetr_dets:
         d["cascaded"] = False
 
-    if mode == "RFDETR Only":
+    if mode == "YOLO Only":
         return {"rfdetr": rfdetr_dets, "vlm": [], "combined": rfdetr_dets}
 
     # Adaptive fallback: escalate anything under the confidence cutoff.

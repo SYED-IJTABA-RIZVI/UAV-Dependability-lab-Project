@@ -2,5 +2,4 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 pillow>=10.0
-rfdetr>=1.0
-supervision>=0.24
+ultralytics>=8.3

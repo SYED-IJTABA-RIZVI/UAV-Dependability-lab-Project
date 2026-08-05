@@ -3,7 +3,7 @@ eval) runs. Writes annotated images + CSVs + confusion-matrix/IoU heatmaps to th
 user-provided output path, and persists everything to Postgres via db.py.
 
 Predicted classes are always drawn from mock_backend.CLASSES (the fixed
-Drone/Bird/Helicopter/Airplane set the model — real or mock — predicts). A
+Airplane/Bird/Drone/Helicopter set the model — real or mock — predicts). A
 custom classes.txt/data.yaml in a test folder should use the same class names;
 mismatched names are skipped when building confusion matrices rather than
 crashing the run.
@@ -201,12 +201,12 @@ def run_test_folder(test_folder_path: str, output_path: str, modality: str, rfde
         vlm_total_ms = sum(d["latency_ms"] for d in vlm_dets)
         if mode == "VLM Only":
             time_ms = vlm_total_ms
-        elif mode == "RFDETR Only":
+        elif mode == "YOLO Only":
             time_ms = rfdetr_pass_ms
         else:
             time_ms = rfdetr_pass_ms + vlm_total_ms
 
-        # RFDETR-scope metrics (the model alone, pre-cascade)
+        # YOLO-scope metrics (the model alone, pre-cascade)
         if mode != "VLM Only":
             r = compute_scope_metrics(rfdetr_dets, gt_boxes, iou_threshold)
             agg["rfdetr"]["tp"] += r["tp"]; agg["rfdetr"]["fp"] += r["fp"]; agg["rfdetr"]["fn"] += r["fn"]
@@ -219,7 +219,7 @@ def run_test_folder(test_folder_path: str, output_path: str, modality: str, rfde
                     confusion_totals["rfdetr"][gi, pi] += 1
 
         # VLM-scope metrics: correction accuracy on exactly the cascaded subset
-        # (VLM never re-localizes, so this is class-match on the RFDETR-proposed
+        # (VLM never re-localizes, so this is class-match on the YOLO-proposed
         # box — via the mock's "_gt" hint when present, else a real IoU lookup)
         for d in vlm_dets:
             gt = _find_gt_for_detection(d, gt_boxes, iou_threshold)

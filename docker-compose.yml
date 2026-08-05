@@ -25,9 +25,9 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-uav}:${POSTGRES_PASSWORD:-uav}@postgres:5432/${POSTGRES_DB:-uav}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      RFDETR_SERVICE_URL: http://rfdetr:8000
-      RFDETR_RGB_CHECKPOINT_PATH: /weights/rfdetr_rgb.pt
-      RFDETR_IR_CHECKPOINT_PATH: /weights/rfdetr_ir.pt
+      YOLO_SERVICE_URL: http://yolo:8000
+      YOLO_RGB_CHECKPOINT_PATH: /weights/yolov12_rgb.pt
+      YOLO_IR_CHECKPOINT_PATH: /weights/yolov10_ir.pt
       VLM_INTERNVL3_URL: http://vlm-internvl3:8000
       VLM_DEEPSEEK_VL_URL: http://vlm-deepseek-vl:8000
       VLM_BLIP2_URL: http://vlm-blip2:8000
@@ -38,15 +38,15 @@ services:
       - ./app:/app
       - ./data:/data
 
-  rfdetr:
+  yolo:
     profiles: ["gpu"]
     build:
-      context: ./app/rfdetr_server
+      context: ./app/yolo_server
     restart: unless-stopped
     runtime: nvidia
     environment:
-      RFDETR_RGB_CHECKPOINT_PATH: /weights/rfdetr_rgb.pt
-      RFDETR_IR_CHECKPOINT_PATH: /weights/rfdetr_ir.pt
+      YOLO_RGB_CHECKPOINT_PATH: /weights/yolov12_rgb.pt
+      YOLO_IR_CHECKPOINT_PATH: /weights/yolov10_ir.pt
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:

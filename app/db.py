@@ -79,7 +79,7 @@ class Detection(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     image_id: Mapped[int] = mapped_column(ForeignKey("images.id"))
-    source: Mapped[str] = mapped_column(String(16))  # RFDETR | VLM
+    source: Mapped[str] = mapped_column(String(16))  # YOLO | VLM
     class_name: Mapped[str] = mapped_column(String(32))
     confidence: Mapped[float] = mapped_column(Float)
     bbox_x: Mapped[float] = mapped_column(Float)

@@ -15,13 +15,13 @@ DEFAULT_SINGLE_OUTPUT_DIR = "outputs/single_images"
 st.set_page_config(page_title="Sky Object Detection Tool", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
 
-RFDETR_MODELS = ["RFDETR-RGB (built-in)", "RFDETR-IR / Thermal (built-in)"]
+RFDETR_MODELS = ["YOLOv12-RGB (built-in)", "YOLOv10-IR / Thermal (built-in)"]
 VLM_MODELS = ["InternVL3", "DeepSeek-VL", "Qwen2.5-VL", "BLIP-2"]
 MODES = [
-    ("RFDETR Only", "EDGE-FAST", "Real-time detection only. Low latency; no fallback if confidence is low."),
+    ("YOLO Only", "EDGE-FAST", "Real-time detection only. Low latency; no fallback if confidence is low."),
     ("VLM Only", "DEEP-VLM", "Multi-modal reasoning on every image. Higher contextual accuracy, slower inference."),
-    ("RFDETR & VLM (Adaptive Fallback)", "ADAPTIVE FALLBACK",
-     "RFDETR classifies instantly. Below the confidence cutoff, the VLM re-checks and becomes the source of truth."),
+    ("YOLO & VLM (Adaptive Fallback)", "ADAPTIVE FALLBACK",
+     "YOLO classifies instantly. Below the confidence cutoff, the VLM re-checks and becomes the source of truth."),
 ]
 
 
@@ -48,7 +48,7 @@ st.markdown(
         <div class="sdt-logo">SDT</div>
         <div>
           <div class="sdt-brand-name">Sky Object Detection Tool</div>
-          <div class="sdt-brand-sub">RFDETR / VLM CASCADE &mdash; RESEARCH PROTOTYPE</div>
+          <div class="sdt-brand-sub">YOLO / VLM CASCADE &mdash; RESEARCH PROTOTYPE</div>
         </div>
       </div>
       <div class="sdt-header-right">
@@ -179,7 +179,7 @@ with right:
             unsafe_allow_html=True,
         )
 
-    st.markdown('<div class="section-label">RFDETR DETECTION MODEL</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">YOLO DETECTION MODEL</div>', unsafe_allow_html=True)
     rfdetr_model = RFDETR_MODELS[0] if modality == "RGB" else RFDETR_MODELS[1]
     dim_style = "opacity:0.5;" if mode == "VLM Only" else ""
     st.markdown(
@@ -196,7 +196,7 @@ with right:
 
     st.markdown('<div class="section-label">VISION-LANGUAGE MODEL (VLM)</div>', unsafe_allow_html=True)
     vlm_model = st.selectbox("vlm model", VLM_MODELS, label_visibility="collapsed",
-                              disabled=(mode == "RFDETR Only"))
+                              disabled=(mode == "YOLO Only"))
     st.caption("API key not yet configured — fallback calls are mocked.")
 
     st.markdown('<div class="section-label">CONFIDENCE CUTOFF</div>', unsafe_allow_html=True)
@@ -259,7 +259,7 @@ with center:
             annotated_img = Image.open(io.BytesIO(st.session_state.image_bytes))
             if res.get("rfdetr") is not None:
                 r = res["rfdetr"]
-                lbl = f"{r['class_name']} · {r['confidence']:.2f} · RFDETR"
+                lbl = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
                 annotated_img = draw_single(annotated_img, r["bbox"], lbl, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
             annotated_path = out_dir / st.session_state.filename
             annotated_img.convert("RGB").save(annotated_path)
@@ -274,7 +274,7 @@ with center:
             img = Image.open(io.BytesIO(st.session_state.image_bytes))
             if result is not None and result.get("rfdetr") is not None:
                 r = result["rfdetr"]
-                label = f"{r['class_name']} · {r['confidence']:.2f} · RFDETR"
+                label = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
                 img = draw_single(img, r["bbox"], label, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
             st.image(img, use_container_width=True)
 
@@ -283,9 +283,9 @@ with center:
                 bx, by, bw, bh = r["bbox"]
                 iw, ih = img.size
                 st.code(
-                    f"RFDETR bbox (fractional x,y,w,h): ({bx:.4f}, {by:.4f}, {bw:.4f}, {bh:.4f})\n"
+                    f"YOLO bbox (fractional x,y,w,h): ({bx:.4f}, {by:.4f}, {bw:.4f}, {bh:.4f})\n"
                     f"Image size: {iw} x {ih}\n"
-                    f"RFDETR bbox (pixels x1,y1,x2,y2): "
+                    f"YOLO bbox (pixels x1,y1,x2,y2): "
                     f"({bx*iw:.1f}, {by*ih:.1f}, {(bx+bw)*iw:.1f}, {(by+bh)*ih:.1f})",
                     language="text",
                 )
@@ -304,7 +304,7 @@ with center:
                 f"&middot; {final['confidence']:.2f}"
             )
             if result["cascaded"]:
-                footer += " &middot; ESCALATED TO VLM (RFDETR CONFIDENCE BELOW CUTOFF)"
+                footer += " &middot; ESCALATED TO VLM (YOLO CONFIDENCE BELOW CUTOFF)"
             st.markdown(f'<div class="ws-footer">{footer}</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div class="ws-footer">NO ANALYSIS RUN YET ON THIS IMAGE.</div>', unsafe_allow_html=True)
@@ -355,7 +355,7 @@ with center:
                 picked = st.selectbox("Preview image", names, label_visibility="collapsed")
                 path = next(im["annotated_path"] for im in er["images"] if im["filename"] == picked)
                 st.image(Image.open(path), use_container_width=True)
-                st.caption("Dashed gray = ground truth · solid color = prediction (tagged RFDETR/VLM) "
+                st.caption("Dashed gray = ground truth · solid color = prediction (tagged YOLO/VLM) "
                            "· red UNDETECTED = ground truth the pipeline never matched.")
 
     else:  # HISTORY
@@ -392,7 +392,7 @@ with center:
                 if detail:
                     st.markdown(
                         f'<div class="ws-footer">MODE: {detail["mode"].upper()} &middot; '
-                        f'RFDETR: {detail["rfdetr_model"]} &middot; VLM: {detail["vlm_model"]} &middot; '
+                        f'YOLO: {detail["rfdetr_model"]} &middot; VLM: {detail["vlm_model"]} &middot; '
                         f'CUTOFF: {detail["confidence_cutoff"]:.2f} &middot; '
                         f'SOURCE: {detail["source_path"] or "—"} &middot; '
                         f'OUTPUT: {detail["output_path"] or "—"}</div>',
@@ -426,7 +426,7 @@ with right:
                 <div class="metric-box" style="margin-top:0;">
                   <div class="metric-title">INFERENCE LATENCY (MOCK)</div>
                   <div class="latency-row">
-                    <div class="latency-item"><span class="latency-label">RFDETR PASS</span><span class="latency-val">{rfdetr_lat}</span></div>
+                    <div class="latency-item"><span class="latency-label">YOLO PASS</span><span class="latency-val">{rfdetr_lat}</span></div>
                     <div class="latency-item"><span class="latency-label">VLM FALLBACK</span><span class="latency-val">{vlm_lat}</span></div>
                     <div class="latency-item"><span class="latency-label">CASCADE</span><span class="latency-val">{cascade_rate}</span></div>
                   </div>
@@ -493,7 +493,7 @@ with right:
 
             st.markdown('<div class="section-label">SCOPE COMPARISON</div>', unsafe_allow_html=True)
             scope_rows = []
-            for scope_key, scope_name in [("rfdetr", "RFDETR"), ("vlm", "VLM"), ("combined", "Combined")]:
+            for scope_key, scope_name in [("rfdetr", "YOLO"), ("vlm", "VLM"), ("combined", "Combined")]:
                 m = er["scope_metrics"][scope_key]
                 scope_rows.append({
                     "Scope": scope_name, "Precision": round(m["precision"], 2), "Recall": round(m["recall"], 2),
@@ -510,7 +510,7 @@ with right:
                 st.caption("No undetected ground-truth objects in this run.")
 
             st.markdown('<div class="section-label">CONFUSION MATRICES</div>', unsafe_allow_html=True)
-            hm_tabs = st.tabs(["RFDETR", "VLM", "Combined", "IoU dist."])
+            hm_tabs = st.tabs(["YOLO", "VLM", "Combined", "IoU dist."])
             for hm_tab, key in zip(hm_tabs, ["rfdetr", "vlm", "combined", "iou_distribution"]):
                 with hm_tab:
                     st.image(er["heatmap_paths"][key], use_container_width=True)
