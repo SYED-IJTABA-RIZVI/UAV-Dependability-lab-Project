@@ -16,6 +16,10 @@ venv/
 .env.*
 !.env.example
 
+# `docker compose config` output — bakes in resolved secrets (API keys, etc.)
+# and machine-specific absolute paths, never meant for git
+compose-rendered.yml
+
 # OS / editor
 .DS_Store
 .vscode/
