@@ -277,6 +277,18 @@ with center:
                 label = f"{r['class_name']} · {r['confidence']:.2f} · RFDETR"
                 img = draw_single(img, r["bbox"], label, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
             st.image(img, use_container_width=True)
+
+            if result is not None and result.get("rfdetr") is not None:
+                r = result["rfdetr"]
+                bx, by, bw, bh = r["bbox"]
+                iw, ih = img.size
+                st.code(
+                    f"RFDETR bbox (fractional x,y,w,h): ({bx:.4f}, {by:.4f}, {bw:.4f}, {bh:.4f})\n"
+                    f"Image size: {iw} x {ih}\n"
+                    f"RFDETR bbox (pixels x1,y1,x2,y2): "
+                    f"({bx*iw:.1f}, {by*ih:.1f}, {(bx+bw)*iw:.1f}, {(by+bh)*ih:.1f})",
+                    language="text",
+                )
         else:
             st.markdown(
                 '<div style="padding:60px; text-align:center; color:var(--text-low); '
