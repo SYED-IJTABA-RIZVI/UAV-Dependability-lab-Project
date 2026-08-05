@@ -33,3 +33,6 @@ data/*
 # file dropped here)
 weights/*
 !weights/.gitkeep
+
+# Default local save location for single-image runs (see main.py)
+app/outputs/

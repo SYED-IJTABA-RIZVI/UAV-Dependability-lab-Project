@@ -52,26 +52,6 @@ services:
     volumes:
       - ./weights:/weights
 
-  rfdetr-debug:
-    profiles: ["debug"]
-    build:
-      context: ./app/rfdetr_server
-    runtime: nvidia
-    environment:
-      RFDETR_RGB_CHECKPOINT_PATH: /weights/rfdetr_rgb.pt
-      RFDETR_IR_CHECKPOINT_PATH: /weights/rfdetr_ir.pt
-      MODALITY: ${DEBUG_MODALITY:-RGB}
-      RFDETR_THRESHOLD: ${DEBUG_THRESHOLD:-0.3}
-      TEST_FOLDER: /test_data
-      OUTPUT_CSV: /output/debug_predictions.csv
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    volumes:
-      - ./weights:/weights
-      - ./debug_test_data:/test_data
-      - ./debug_output:/output
-    command: ["python", "debug_predict.py"]
-
   vlm-internvl3:
     profiles: ["gpu"]
     build:
