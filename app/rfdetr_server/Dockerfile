@@ -5,7 +5,7 @@ WORKDIR /srv
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY server.py debug_predict.py .
+COPY server.py debug_predict.py debug_draw.py .
 
 EXPOSE 8000
 
