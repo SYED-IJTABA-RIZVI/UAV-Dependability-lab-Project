@@ -1,18 +1,28 @@
 """
-Inference layer. run_yolo()/run_vlm() (and their multi-object counterparts)
-are the mock simulator — still used as an automatic fallback. Real inference
-is attempted first via real_inference.py whenever it's configured (YOLO
-checkpoint present + service reachable, or a VLM API key / local service URL
-set); any failure there (unreachable service, timeout, missing checkpoint)
-silently falls back to the simulator below rather than crashing the app.
+Inference layer. Real inference (real_inference.py) is required by default —
+if a model isn't configured or a real call fails, callers get a
+ModelUnavailable error instead of a substituted result, since a guessed
+class/bbox is worse than no answer at all. run_yolo()/run_vlm() (and their
+multi-object counterparts) are the mock simulator; it only ever runs if
+explicitly opted into via ALLOW_MOCK_FALLBACK=1 (useful for exercising the
+rest of the app's logic on a machine with no GPU/models configured).
 """
 
 import hashlib
+import os
 import random
 
 import real_inference
 
+ALLOW_MOCK_FALLBACK = os.environ.get("ALLOW_MOCK_FALLBACK", "").lower() in ("1", "true", "yes")
+
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
+
+
+class ModelUnavailable(Exception):
+    """Raised when real inference isn't configured or fails, and mock
+    fallback is disabled (the default). Callers must surface this to the
+    user rather than substitute a guessed result."""
 
 CLASS_COLOR = {
     "Drone": "#B23A31",
@@ -76,9 +86,14 @@ def _get_vlm_result(image_bytes: bytes, vlm_model: str) -> dict:
     if real_inference.vlm_available(vlm_model):
         try:
             return real_inference.run_real_vlm(image_bytes, vlm_model)
-        except Exception:
-            pass
-    return run_vlm(image_bytes, vlm_model)
+        except Exception as exc:
+            if ALLOW_MOCK_FALLBACK:
+                return run_vlm(image_bytes, vlm_model)
+            raise ModelUnavailable(f"{vlm_model} failed: {exc}") from exc
+
+    if ALLOW_MOCK_FALLBACK:
+        return run_vlm(image_bytes, vlm_model)
+    raise ModelUnavailable(f"{vlm_model} is not configured (no API key / service URL set).")
 
 
 def _get_yolo_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> dict:
@@ -91,9 +106,14 @@ def _get_yolo_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> di
                 "source": "YOLO", "model_name": rfdetr_model, "class_name": "No Detection",
                 "confidence": 0.0, "bbox": (0.0, 0.0, 1.0, 1.0), "latency_ms": 0,
             }
-        except Exception:
-            pass
-    return run_yolo(image_bytes, modality, rfdetr_model)
+        except Exception as exc:
+            if ALLOW_MOCK_FALLBACK:
+                return run_yolo(image_bytes, modality, rfdetr_model)
+            raise ModelUnavailable(f"YOLO ({modality}) failed: {exc}") from exc
+
+    if ALLOW_MOCK_FALLBACK:
+        return run_yolo(image_bytes, modality, rfdetr_model)
+    raise ModelUnavailable(f"YOLO ({modality}) is not configured (checkpoint/service missing).")
 
 
 def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model: str,
@@ -242,9 +262,14 @@ def _get_yolo_multi_result(image_bytes: bytes, gt_boxes: list, modality: str, rf
                 # batch._find_gt_for_detection).
                 d["_gt"] = None
             return detections
-        except Exception:
-            pass
-    return simulate_yolo_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+        except Exception as exc:
+            if ALLOW_MOCK_FALLBACK:
+                return simulate_yolo_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+            raise ModelUnavailable(f"YOLO ({modality}) failed: {exc}") from exc
+
+    if ALLOW_MOCK_FALLBACK:
+        return simulate_yolo_multi(image_bytes, gt_boxes, modality, rfdetr_model)
+    raise ModelUnavailable(f"YOLO ({modality}) is not configured (checkpoint/service missing).")
 
 
 def _get_vlm_multi_result(image_bytes: bytes, detection: dict, vlm_model: str,
@@ -254,9 +279,14 @@ def _get_vlm_multi_result(image_bytes: bytes, detection: dict, vlm_model: str,
             result = real_inference.run_real_vlm(image_bytes, vlm_model, crop_bbox=detection["bbox"])
             result["bbox"] = detection["bbox"]
             return result
-        except Exception:
-            pass
-    return simulate_vlm_for_detection(image_bytes, detection, vlm_model, true_class=true_class)
+        except Exception as exc:
+            if ALLOW_MOCK_FALLBACK:
+                return simulate_vlm_for_detection(image_bytes, detection, vlm_model, true_class=true_class)
+            raise ModelUnavailable(f"{vlm_model} failed: {exc}") from exc
+
+    if ALLOW_MOCK_FALLBACK:
+        return simulate_vlm_for_detection(image_bytes, detection, vlm_model, true_class=true_class)
+    raise ModelUnavailable(f"{vlm_model} is not configured (no API key / service URL set).")
 
 
 def run_batch_cascade(image_bytes: bytes, gt_boxes: list, modality: str, rfdetr_model: str,

@@ -7,7 +7,7 @@ from PIL import Image
 import batch
 import db
 from drawing import draw_single
-from mock_backend import CLASS_COLOR, run_cascade
+from mock_backend import CLASS_COLOR, ModelUnavailable, run_cascade
 from style import CSS
 
 DEFAULT_SINGLE_OUTPUT_DIR = "outputs/single_images"
@@ -192,12 +192,12 @@ with right:
         """,
         unsafe_allow_html=True,
     )
-    st.caption("Trained checkpoint lives on the lab PC — not loaded in this prototype.")
+    st.caption("Requires the YOLO checkpoint + service running (see SETUP.md) — no fallback if unavailable.")
 
     st.markdown('<div class="section-label">VISION-LANGUAGE MODEL (VLM)</div>', unsafe_allow_html=True)
     vlm_model = st.selectbox("vlm model", VLM_MODELS, label_visibility="collapsed",
                               disabled=(mode == "YOLO Only"))
-    st.caption("API key not yet configured — fallback calls are mocked.")
+    st.caption("Requires an API key / local service for this VLM (see SETUP.md) — no fallback if unavailable.")
 
     st.markdown('<div class="section-label">CONFIDENCE CUTOFF</div>', unsafe_allow_html=True)
     threshold = st.slider("threshold", min_value=0.15, max_value=0.90, value=0.39, step=0.01,
@@ -249,24 +249,29 @@ with center:
         analyze = st.button("▶ ANALYZE FRAME", disabled=analyze_disabled, type="primary")
 
         if analyze:
-            st.session_state.result = run_cascade(
-                st.session_state.image_bytes, modality, rfdetr_model, vlm_model, threshold, mode
-            )
-            res = st.session_state.result
+            try:
+                st.session_state.result = run_cascade(
+                    st.session_state.image_bytes, modality, rfdetr_model, vlm_model, threshold, mode
+                )
+            except ModelUnavailable as exc:
+                st.session_state.result = None
+                st.error(f"MODEL UNAVAILABLE — {exc}")
+            else:
+                res = st.session_state.result
 
-            out_dir = Path(single_output_path) if single_output_path else Path(DEFAULT_SINGLE_OUTPUT_DIR)
-            out_dir.mkdir(parents=True, exist_ok=True)
-            annotated_img = Image.open(io.BytesIO(st.session_state.image_bytes))
-            if res.get("rfdetr") is not None:
-                r = res["rfdetr"]
-                lbl = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
-                annotated_img = draw_single(annotated_img, r["bbox"], lbl, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
-            annotated_path = out_dir / st.session_state.filename
-            annotated_img.convert("RGB").save(annotated_path)
+                out_dir = Path(single_output_path) if single_output_path else Path(DEFAULT_SINGLE_OUTPUT_DIR)
+                out_dir.mkdir(parents=True, exist_ok=True)
+                annotated_img = Image.open(io.BytesIO(st.session_state.image_bytes))
+                if res.get("rfdetr") is not None:
+                    r = res["rfdetr"]
+                    lbl = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
+                    annotated_img = draw_single(annotated_img, r["bbox"], lbl, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
+                annotated_path = out_dir / st.session_state.filename
+                annotated_img.convert("RGB").save(annotated_path)
 
-            db.save_single_image_run(st.session_state.filename, modality, rfdetr_model, vlm_model,
-                                      threshold, mode, res,
-                                      output_path=str(out_dir), annotated_path=str(annotated_path))
+                db.save_single_image_run(st.session_state.filename, modality, rfdetr_model, vlm_model,
+                                          threshold, mode, res,
+                                          output_path=str(out_dir), annotated_path=str(annotated_path))
 
         result = st.session_state.result
 
