@@ -25,7 +25,7 @@ import time
 
 import requests
 
-QWEN_MODEL_ID = "qwen/qwen-2.5-vl-7b-instruct"
+QWEN_MODEL_ID = "qwen/qwen2.5-vl-72b-instruct"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 REQUEST_TIMEOUT_S = 20
