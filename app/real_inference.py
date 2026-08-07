@@ -6,7 +6,7 @@ checkpoint / unreachable local VLM service / OpenRouter timeout degrades
 gracefully instead of crashing the app.
 
 YOLO (YOLOv12 for RGB, YOLOv10 for IR/Thermal) and the 3 self-hosted VLMs
-(InternVL3, DeepSeek-VL, BLIP-2) run as separate GPU-enabled containers (see
+(InternVL2.5, DeepSeek-VL, BLIP-2) run as separate GPU-enabled containers (see
 app/yolo_server/, app/vlm_server/, docker-compose.yml's "gpu" profile) rather
 than in-process here, because the main `app` service must stay
 GPU-reservation-free so `docker compose up` keeps working on machines with no
@@ -25,7 +25,7 @@ import time
 
 import requests
 
-QWEN_MODEL_ID = "qwen/qwen2.5-vl-72b-instruct"
+QWEN_MODEL_ID = "qwen/qwen-2.5-vl-7b-instruct"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 REQUEST_TIMEOUT_S = 20
@@ -47,7 +47,7 @@ def _normalize_class(raw_name: str, source: str) -> str:
 
 
 VLM_LOCAL_SERVICE_ENV = {
-    "InternVL3": "VLM_INTERNVL3_URL",
+    "InternVL2.5": "VLM_INTERNVL3_URL",
     "DeepSeek-VL": "VLM_DEEPSEEK_VL_URL",
     "BLIP-2": "VLM_BLIP2_URL",
 }

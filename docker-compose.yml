@@ -59,7 +59,7 @@ services:
     restart: unless-stopped
     runtime: nvidia
     environment:
-      MODEL_ID: OpenGVLab/InternVL3-8B
+      MODEL_ID: OpenGVLab/InternVL2_5-8B
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:
@@ -72,7 +72,7 @@ services:
     restart: unless-stopped
     runtime: nvidia
     environment:
-      MODEL_ID: deepseek-ai/deepseek-vl2-tiny
+      MODEL_ID: deepseek-ai/deepseek-vl-7b-chat
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:

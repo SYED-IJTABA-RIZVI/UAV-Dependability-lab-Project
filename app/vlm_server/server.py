@@ -1,17 +1,20 @@
 """
 Generic self-hosted VLM classification server. The same image/container is
-reused for InternVL3, DeepSeek-VL, and BLIP-2 in docker-compose.yml's "gpu"
-profile — MODEL_ID picks which one loads at startup.
+reused for InternVL2.5-8B, DeepSeek-VL-7B-Chat, and BLIP-2 in
+docker-compose.yml's "gpu" profile — MODEL_ID picks which one loads at
+startup.
 
 NOT verified end-to-end: written on this machine (no GPU) against each
 model's documented loading pattern. BLIP-2's `transformers` API is stable and
-should just work. InternVL3 and DeepSeek-VL are loaded via
+should just work. InternVL2.5 and DeepSeek-VL are loaded via
 `trust_remote_code=True`, which is how their HF model cards document it, but
 that code path can only really be confirmed on the GPU host — see SETUP.md.
-Also: DeepSeek-VL2's own inference helpers may require adjustment (their repo
-has historically shipped extra utility code beyond plain `transformers`); if
-`trust_remote_code` loading here doesn't work as-is, the fix is almost
-certainly in `_load_deepseek_vl` / `_infer_deepseek_vl` below.
+Also: DeepSeek-VL (v1, deepseek-ai/deepseek-vl-7b-chat) has historically
+shipped its own `deepseek_vl` pip package with a dedicated `VLChatProcessor`
+in its official usage examples, rather than working purely through generic
+`AutoModel`/`AutoTokenizer` + `trust_remote_code=True` like this file assumes
+— if loading or `.chat()` fails for it, that's the first thing to check
+against the model's actual HF page.
 
 BLIP-2 in particular is a weaker instruction-follower than the others (it's
 an older captioning/VQA model, not a modern chat-tuned VLM) — the response
@@ -46,7 +49,7 @@ def _load_blip2():
 
 
 def _load_generic_trust_remote_code():
-    """InternVL3 / DeepSeek-VL — both ship their own modeling code on the HF
+    """InternVL2.5 / DeepSeek-VL — both ship their own modeling code on the HF
     repo and are loaded via trust_remote_code, per their model cards."""
     from transformers import AutoModel, AutoTokenizer
 
@@ -85,7 +88,7 @@ def _infer_blip2(image: Image.Image, prompt: str) -> str:
 
 
 def _infer_generic_chat(image: Image.Image, prompt: str) -> str:
-    """Shared for InternVL3 / DeepSeek-VL — both expose a `.chat()` method
+    """Shared for InternVL2.5 / DeepSeek-VL — both expose a `.chat()` method
     taking a tokenizer, pixel values, and a text prompt in their published
     usage examples. Image preprocessing here is a simple resize+normalize,
     not each model's full official pipeline (e.g. InternVL's dynamic tiling)

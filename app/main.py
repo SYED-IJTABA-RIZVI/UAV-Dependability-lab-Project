@@ -16,7 +16,7 @@ st.set_page_config(page_title="Sky Object Detection Tool", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
 
 RFDETR_MODELS = ["YOLOv12-RGB (built-in)", "YOLOv10-IR / Thermal (built-in)"]
-VLM_MODELS = ["InternVL3", "DeepSeek-VL", "Qwen2.5-VL", "BLIP-2"]
+VLM_MODELS = ["InternVL2.5", "DeepSeek-VL", "Qwen2.5-VL", "BLIP-2"]
 MODES = [
     ("YOLO Only", "EDGE-FAST", "Real-time detection only. Low latency; no fallback if confidence is low."),
     ("VLM Only", "DEEP-VLM", "Multi-modal reasoning on every image. Higher contextual accuracy, slower inference."),
