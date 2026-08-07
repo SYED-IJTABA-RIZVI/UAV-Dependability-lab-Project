@@ -4,6 +4,11 @@ FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
 WORKDIR /srv
 
+# requirements.txt installs deepseek_vl straight from GitHub (pip needs git
+# on PATH to clone it) — the base image doesn't have git installed.
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
