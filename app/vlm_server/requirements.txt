@@ -11,3 +11,12 @@ pillow>=10.0
 einops>=0.8
 timm>=1.0
 sentencepiece>=0.2
+# InternVL2.5's tokenizer (tokenization_internlm2.py, sentencepiece-based)
+# needs this for its error-handling import path even when nothing fails.
+protobuf>=4.25
+# DeepSeek-VL (v1, deepseek-ai/deepseek-vl-7b-chat) ships its own model
+# classes (VLChatProcessor, MultiModalityCausalLM) that AutoModel/AutoConfig
+# don't know about until this package is imported (it self-registers as an
+# import side effect) — the generic trust_remote_code path 404s on the
+# "multi_modality" model_type without it.
+deepseek_vl @ git+https://github.com/deepseek-ai/DeepSeek-VL.git

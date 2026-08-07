@@ -79,14 +79,27 @@ end-to-end**, so budget time to debug on first launch:
   `docker compose --profile gpu up -d --build app postgres yolo
   vlm-internvl3` to start a subset), or swap in smaller checkpoints via each
   service's `MODEL_ID` in `docker-compose.yml`.
-- **InternVL2.5 / DeepSeek-VL loading code** (`app/vlm_server/server.py`,
+- **InternVL2.5 loading code** (`app/vlm_server/server.py`,
   `_load_generic_trust_remote_code` / `_infer_generic_chat`): loaded via
-  `trust_remote_code=True` per their HF model cards. If loading or `.chat()`
+  `trust_remote_code=True` per its HF model card. If loading or `.chat()`
   fails, that function is the fix point — check the model's actual HF page
-  for its current usage example. DeepSeek-VL (v1) in particular has
-  historically shipped its own `deepseek_vl` pip package with a dedicated
-  `VLChatProcessor` rather than working through plain
-  `AutoModel`/`AutoTokenizer` — check that first if it specifically fails.
+  for its current usage example. Confirmed on the lab GPU host: needs
+  `protobuf` installed (now in requirements.txt) for its sentencepiece-based
+  tokenizer. If you still hit `RuntimeError: piece must not include null
+  character` after that, the cached tokenizer file itself is likely
+  corrupted/incomplete (e.g. from a disk-full interruption mid-download) —
+  clear that model's entry from the `hf_cache` volume and let it re-download.
+- **DeepSeek-VL (v1) loading code** (`_load_deepseek_vl` / `_infer_deepseek_vl`
+  in `app/vlm_server/server.py`): confirmed on the lab GPU host that the
+  generic `trust_remote_code` path does NOT work for it (raises
+  `KeyError: 'multi_modality'`) — it needs its own `deepseek_vl` pip package
+  (installed from their GitHub repo in requirements.txt) and a dedicated
+  VLChatProcessor/MultiModalityCausalLM loading path, which is now what this
+  file does. That specific fix is written directly from DeepSeek-VL's
+  published usage example but hasn't itself been run on the GPU host yet —
+  the `deepseek_vl` package's own dependencies could also conflict with the
+  `transformers<4.52` pin above; if the pip install step itself fails, that's
+  the first thing to check.
 - **YOLOv12 support in `ultralytics`**: YOLOv12 is newer than YOLOv10/v11;
   `app/yolo_server/requirements.txt` pins `ultralytics>=8.3`, but confirm the
   installed version actually supports loading a YOLOv12 checkpoint — if

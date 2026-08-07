@@ -1,20 +1,25 @@
 """
-Generic self-hosted VLM classification server. The same image/container is
-reused for InternVL2.5-8B, DeepSeek-VL-7B-Chat, and BLIP-2 in
-docker-compose.yml's "gpu" profile — MODEL_ID picks which one loads at
-startup.
+Self-hosted VLM classification server. The same image/container is reused
+for InternVL2.5-8B, DeepSeek-VL-7B-Chat, and BLIP-2 in docker-compose.yml's
+"gpu" profile — MODEL_ID picks which one loads at startup.
 
-NOT verified end-to-end: written on this machine (no GPU) against each
-model's documented loading pattern. BLIP-2's `transformers` API is stable and
-should just work. InternVL2.5 and DeepSeek-VL are loaded via
-`trust_remote_code=True`, which is how their HF model cards document it, but
-that code path can only really be confirmed on the GPU host — see SETUP.md.
-Also: DeepSeek-VL (v1, deepseek-ai/deepseek-vl-7b-chat) has historically
-shipped its own `deepseek_vl` pip package with a dedicated `VLChatProcessor`
-in its official usage examples, rather than working purely through generic
-`AutoModel`/`AutoTokenizer` + `trust_remote_code=True` like this file assumes
-— if loading or `.chat()` fails for it, that's the first thing to check
-against the model's actual HF page.
+BLIP-2's `transformers` API is stable and should just work. InternVL2.5 is
+loaded via generic `AutoModel`/`trust_remote_code=True`, per its HF model
+card. DeepSeek-VL (v1, deepseek-ai/deepseek-vl-7b-chat) does NOT work through
+that generic path — confirmed on the lab GPU host: it raised
+`KeyError: 'multi_modality'` / "Transformers does not recognize this
+architecture", because AutoConfig/AutoModel have no idea what its
+"multi_modality" model type is until DeepSeek-VL's own `deepseek_vl` pip
+package (installed from their GitHub repo, see requirements.txt) is imported
+— that import registers the custom model classes as a side effect. So
+DeepSeek-VL gets its own dedicated load/infer path below
+(`_load_deepseek_vl` / `_infer_deepseek_vl`), using their documented
+VLChatProcessor + MultiModalityCausalLM usage example directly, rather than
+going through the generic trust_remote_code path.
+
+NOT verified end-to-end beyond that one confirmed error — the DeepSeek-VL
+fix here is written directly from their published usage example but hasn't
+itself been run on the GPU host yet.
 
 BLIP-2 in particular is a weaker instruction-follower than the others (it's
 an older captioning/VQA model, not a modern chat-tuned VLM) — the response
@@ -49,8 +54,8 @@ def _load_blip2():
 
 
 def _load_generic_trust_remote_code():
-    """InternVL2.5 / DeepSeek-VL — both ship their own modeling code on the HF
-    repo and are loaded via trust_remote_code, per their model cards."""
+    """InternVL2.5 — ships its own modeling code on the HF repo and is loaded
+    via trust_remote_code, per its model card."""
     from transformers import AutoModel, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
@@ -58,8 +63,21 @@ def _load_generic_trust_remote_code():
         MODEL_ID, trust_remote_code=True, torch_dtype=torch.bfloat16,
         load_in_8bit=True, device_map="auto",
     ).eval()
-    family = "deepseek_vl" if "deepseek" in MODEL_ID.lower() else "internvl"
-    return {"family": family, "model": model, "tokenizer": tokenizer}
+    return {"family": "internvl", "model": model, "tokenizer": tokenizer}
+
+
+def _load_deepseek_vl():
+    """DeepSeek-VL (v1) — needs its own deepseek_vl package (see
+    requirements.txt), not the generic trust_remote_code path. Follows their
+    published usage example exactly (VLChatProcessor + MultiModalityCausalLM
+    via AutoModelForCausalLM)."""
+    from deepseek_vl.models import VLChatProcessor  # noqa: F401 (import registers MultiModalityCausalLM)
+    from transformers import AutoModelForCausalLM
+
+    processor = VLChatProcessor.from_pretrained(MODEL_ID)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True)
+    model = model.to(torch.bfloat16).cuda().eval()
+    return {"family": "deepseek_vl", "model": model, "processor": processor, "tokenizer": processor.tokenizer}
 
 
 @app.on_event("startup")
@@ -67,6 +85,8 @@ def load_model():
     model_id_lower = MODEL_ID.lower()
     if "blip" in model_id_lower:
         loaded = _load_blip2()
+    elif "deepseek" in model_id_lower:
+        loaded = _load_deepseek_vl()
     else:
         loaded = _load_generic_trust_remote_code()
     _state.update(loaded)
@@ -87,12 +107,40 @@ def _infer_blip2(image: Image.Image, prompt: str) -> str:
     return processor.decode(out[0], skip_special_tokens=True)
 
 
+def _infer_deepseek_vl(image: Image.Image, prompt: str) -> str:
+    """Follows DeepSeek-VL's published usage example: a conversation dict
+    with an <image_placeholder> token, VLChatProcessor to prepare inputs,
+    prepare_inputs_embeds, then generate on model.language_model directly."""
+    processor, model, tokenizer = _state["processor"], _state["model"], _state["tokenizer"]
+
+    conversation = [
+        {"role": "User", "content": f"<image_placeholder>{prompt}", "images": ["input"]},
+        {"role": "Assistant", "content": ""},
+    ]
+    prepare_inputs = processor(
+        conversations=conversation, images=[image.convert("RGB")], force_batchify=True,
+    ).to(model.device)
+
+    inputs_embeds = model.prepare_inputs_embeds(**prepare_inputs)
+    outputs = model.language_model.generate(
+        inputs_embeds=inputs_embeds,
+        attention_mask=prepare_inputs.attention_mask,
+        pad_token_id=tokenizer.eos_token_id,
+        bos_token_id=tokenizer.bos_token_id,
+        eos_token_id=tokenizer.eos_token_id,
+        max_new_tokens=200,
+        do_sample=False,
+        use_cache=True,
+    )
+    return tokenizer.decode(outputs[0].cpu().tolist(), skip_special_tokens=True)
+
+
 def _infer_generic_chat(image: Image.Image, prompt: str) -> str:
-    """Shared for InternVL2.5 / DeepSeek-VL — both expose a `.chat()` method
-    taking a tokenizer, pixel values, and a text prompt in their published
-    usage examples. Image preprocessing here is a simple resize+normalize,
-    not each model's full official pipeline (e.g. InternVL's dynamic tiling)
-    — adequate to produce a result, may not match published accuracy."""
+    """InternVL2.5 — expose a `.chat()` method taking a tokenizer, pixel
+    values, and a text prompt in its published usage example. Image
+    preprocessing here is a simple resize+normalize, not the model's full
+    official pipeline (e.g. InternVL's dynamic tiling) — adequate to produce
+    a result, may not match published accuracy."""
     from torchvision import transforms
 
     model, tokenizer = _state["model"], _state["tokenizer"]
@@ -147,6 +195,8 @@ async def classify(image: UploadFile = File(...), prompt: str = Form(default="")
 
     if _state["family"] == "blip2":
         raw = _infer_blip2(img, full_prompt)
+    elif _state["family"] == "deepseek_vl":
+        raw = _infer_deepseek_vl(img, full_prompt)
     else:
         raw = _infer_generic_chat(img, full_prompt)
 
