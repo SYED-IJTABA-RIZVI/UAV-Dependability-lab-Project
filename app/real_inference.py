@@ -31,6 +31,20 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 REQUEST_TIMEOUT_S = 20
 
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
+_CLASS_LOOKUP = {c.lower(): c for c in CLASSES}
+
+
+def _normalize_class(raw_name: str, source: str) -> str:
+    """Real models (YOLO checkpoints, VLM text responses) aren't guaranteed to
+    return this app's exact casing for a class name — a checkpoint's embedded
+    labels might be "drone" where this app expects "Drone", for example.
+    Match case-insensitively (and tolerate stray whitespace) rather than
+    rejecting an otherwise-correct result over casing alone."""
+    canonical = _CLASS_LOOKUP.get(str(raw_name).strip().lower())
+    if canonical is None:
+        raise ValueError(f"{source} returned unknown class: {raw_name!r}")
+    return canonical
+
 
 VLM_LOCAL_SERVICE_ENV = {
     "InternVL3": "VLM_INTERNVL3_URL",
@@ -61,9 +75,7 @@ def _parse_vlm_json(text: str) -> dict:
         if text.startswith("json"):
             text = text[4:]
     data = json.loads(text)
-    class_name = data["class_name"]
-    if class_name not in CLASSES:
-        raise ValueError(f"VLM returned unknown class: {class_name!r}")
+    class_name = _normalize_class(data["class_name"], "VLM")
     return {
         "class_name": class_name,
         "confidence": float(data["confidence"]),
@@ -129,10 +141,9 @@ def _call_local_vlm(image_bytes: bytes, vlm_name: str) -> dict:
     )
     resp.raise_for_status()
     data = resp.json()
-    if data["class_name"] not in CLASSES:
-        raise ValueError(f"VLM returned unknown class: {data['class_name']!r}")
+    class_name = _normalize_class(data["class_name"], "VLM")
     return {
-        "class_name": data["class_name"],
+        "class_name": class_name,
         "confidence": float(data["confidence"]),
         "reasoning": str(data.get("reasoning", "")),
     }
@@ -192,8 +203,7 @@ def run_real_yolo(image_bytes: bytes, modality: str) -> list:
     detections = resp.json()["detections"]
 
     for det in detections:
-        if det["class_name"] not in CLASSES:
-            raise ValueError(f"YOLO returned unknown class: {det['class_name']!r}")
+        det["class_name"] = _normalize_class(det["class_name"], "YOLO")
         det["source"] = "YOLO"
         det["model_name"] = f"YOLO-{modality} (real)"
         det["bbox"] = tuple(det["bbox"])
