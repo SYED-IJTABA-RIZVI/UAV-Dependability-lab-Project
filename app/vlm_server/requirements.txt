@@ -18,5 +18,6 @@ protobuf>=4.25
 # classes (VLChatProcessor, MultiModalityCausalLM) that AutoModel/AutoConfig
 # don't know about until this package is imported (it self-registers as an
 # import side effect) — the generic trust_remote_code path 404s on the
-# "multi_modality" model_type without it.
-deepseek_vl @ git+https://github.com/deepseek-ai/DeepSeek-VL.git
+# "multi_modality" model_type without it. Installed in the Dockerfile from a
+# tarball snapshot (no PyPI release, and no git+https here to avoid needing
+# a git binary in the image) rather than listed here.
