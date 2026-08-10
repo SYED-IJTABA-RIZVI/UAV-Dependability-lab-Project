@@ -189,10 +189,22 @@ def _infer_blip2(image: Image.Image, prompt: str) -> str:
     and since our prompt lists "Airplane" first among the class names, the
     lenient fallback in _parse_response matched it every single time
     regardless of what the model actually predicted. Slice off the prompt
-    length so only the newly generated tokens get decoded."""
+    length so only the newly generated tokens get decoded.
+
+    Also: BLIP-2 is a weak instruction-follower and got confused by the
+    shared "respond with JSON" prompt built for the other two (confirmed on
+    the lab GPU host — after fixing the slicing bug above, it generated an
+    empty string, i.e. hit EOS immediately rather than attempt an answer).
+    Ignore the passed `prompt` and use BLIP-2's own trained VQA convention
+    ("Question: ... Answer:") instead — _parse_response's lenient fallback
+    already handles a short free-text answer, no JSON needed."""
     model, processor = _state["model"], _state["processor"]
-    inputs = processor(image, prompt, return_tensors="pt").to(model.device, torch.float16)
-    out = model.generate(**inputs, max_new_tokens=200)
+    blip2_prompt = (
+        "Question: what flying object is in this image — "
+        f"{', '.join(c.lower() for c in CLASSES)}? Answer:"
+    )
+    inputs = processor(image, blip2_prompt, return_tensors="pt").to(model.device, torch.float16)
+    out = model.generate(**inputs, max_new_tokens=50, min_new_tokens=1)
     generated_only = out[:, inputs["input_ids"].shape[1]:]
     return processor.decode(generated_only[0], skip_special_tokens=True)
 
