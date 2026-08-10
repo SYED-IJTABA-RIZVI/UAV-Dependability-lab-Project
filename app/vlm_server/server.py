@@ -22,6 +22,14 @@ DeepSeek-VL gets its own dedicated load/infer path below
 VLChatProcessor + MultiModalityCausalLM usage example directly, rather than
 going through the generic trust_remote_code path.
 
+All 3 checkpoints are pre-fetched to the local disk cache (hf_cache volume)
+in a background thread at startup — that's the slow multi-GB-over-network
+part, decoupled from VRAM loading so a user isn't stuck waiting on a cold
+download mid-request. VRAM loading itself stays fully lazy (see
+_ensure_loaded below): once a model's files are on disk, loading it into
+VRAM is comparatively quick (seconds, not minutes), whether that's the first
+use or a later switch back to it.
+
 NOT verified end-to-end beyond the one confirmed error above — the
 DeepSeek-VL fix and this whole lazy-load/swap mechanism are written directly
 against each library's documented API but haven't themselves been run on the
@@ -40,13 +48,41 @@ import threading
 
 import torch
 from fastapi import FastAPI, File, Form, UploadFile
+from huggingface_hub import snapshot_download
 from PIL import Image
 
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 
+# Keep in sync with real_inference.py's VLM_MODEL_IDS values — duplicated
+# rather than shared since these run in separate containers.
+PRELOAD_MODEL_IDS = [
+    "OpenGVLab/InternVL2_5-8B",
+    "deepseek-ai/deepseek-vl-7b-chat",
+    "Salesforce/blip2-opt-2.7b",
+]
+
 app = FastAPI()
 _state = {"model_id": None, "family": None, "model": None, "processor": None, "tokenizer": None}
 _lock = threading.Lock()
+
+
+def _preload_weights_background() -> None:
+    """Downloads (only — no model instantiation, no VRAM) every VLM's
+    checkpoint to the local disk cache, one at a time, so switching VLMs
+    later never has to fall back to a cold multi-GB download mid-request."""
+    for model_id in PRELOAD_MODEL_IDS:
+        try:
+            print(f"[vlm_server] preloading {model_id} to disk cache...", flush=True)
+            snapshot_download(repo_id=model_id)
+            print(f"[vlm_server] preload done: {model_id}", flush=True)
+        except Exception as exc:
+            print(f"[vlm_server] preload FAILED for {model_id}: {exc} "
+                  f"(will fall back to downloading on first use instead)", flush=True)
+
+
+@app.on_event("startup")
+def start_preload() -> None:
+    threading.Thread(target=_preload_weights_background, daemon=True).start()
 
 
 def _load_blip2(model_id: str):

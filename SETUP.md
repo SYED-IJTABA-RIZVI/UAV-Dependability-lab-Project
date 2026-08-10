@@ -55,14 +55,19 @@ with:
 docker compose --profile gpu up -d --build
 ```
 
-Only YOLO loads its checkpoint(s) at startup. The `vlm` service loads nothing
-until the first `/classify` call, and only ever keeps ONE of
-InternVL2.5/DeepSeek-VL/BLIP-2 in VRAM at a time — switching which VLM you
-select in the app unloads whatever was loaded and loads the new one, which
-takes real time (an 8B checkpoint took ~25s+ in testing) on that first call
-after switching. This is deliberate: three 8-bit VLMs loaded simultaneously
-alongside YOLO doesn't reliably fit on a 20GB card; trading first-call
-latency for guaranteed VRAM headroom does. Check each service is actually up:
+YOLO loads its checkpoint(s) at startup. The `vlm` service downloads all 3
+VLM checkpoints to disk (the `hf_cache` volume) in a background thread at
+startup — that's the slow multi-GB-over-network part, done once ever per
+model regardless of which one you actually use first, so a later switch
+between VLMs never stalls on a cold download. VRAM loading is separate and
+stays fully lazy: only ONE of InternVL2.5/DeepSeek-VL/BLIP-2 is ever resident
+in VRAM at a time — switching which VLM you select in the app unloads
+whatever was loaded and loads the new one from its (already-downloaded) disk
+cache, which still takes real time (an 8B checkpoint's shards took ~25s+ in
+testing even from local disk) on that first call after switching. This is
+deliberate: three 8-bit VLMs loaded simultaneously alongside YOLO doesn't
+reliably fit on a 20GB card; trading VRAM-load latency for guaranteed
+headroom does. Check each service is actually up:
 
 ```bash
 curl localhost:8501                    # app

@@ -5,6 +5,7 @@ python-multipart>=0.0.9
 # the base image pins torch==2.4.0, so cap below that to avoid an import
 # crash at startup.
 transformers>=4.45,<4.52
+huggingface_hub>=0.24
 accelerate>=0.34
 bitsandbytes>=0.43
 pillow>=10.0
