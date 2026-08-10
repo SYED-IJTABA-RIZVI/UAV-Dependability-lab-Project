@@ -5,10 +5,14 @@ callers in mock_backend.py catch and fall back to the simulator, so a missing
 checkpoint / unreachable local VLM service / OpenRouter timeout degrades
 gracefully instead of crashing the app.
 
-YOLO (YOLOv12 for RGB, YOLOv10 for IR/Thermal) and the 3 self-hosted VLMs
-(InternVL2.5, DeepSeek-VL, BLIP-2) run as separate GPU-enabled containers (see
-app/yolo_server/, app/vlm_server/, docker-compose.yml's "gpu" profile) rather
-than in-process here, because the main `app` service must stay
+YOLO (YOLOv12 for RGB, YOLOv10 for IR/Thermal) runs as its own GPU-enabled
+container (app/yolo_server/), and the 3 self-hosted VLMs (InternVL2.5,
+DeepSeek-VL, BLIP-2) share a SINGLE GPU-enabled container (app/vlm_server/)
+that lazy-loads whichever one was actually requested and unloads it when a
+different one is requested — deliberate VRAM tradeoff: only one local VLM
+occupies VRAM at a time (plus YOLO, always resident), at the cost of a
+reload-latency hit on the first call after switching models. See
+docker-compose.yml's "gpu" profile. The main `app` service stays
 GPU-reservation-free so `docker compose up` keeps working on machines with no
 GPU. Qwen2.5-VL is the one VLM with a real hosted API (OpenRouter) and is
 called directly from here.
@@ -29,6 +33,11 @@ QWEN_MODEL_ID = "qwen/qwen2.5-vl-72b-instruct"
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 REQUEST_TIMEOUT_S = 20
+# Local VLM calls can trigger an unload-current/load-new-model swap
+# (app/vlm_server/server.py) before inference even starts — an 8B model's
+# checkpoint shards alone took ~25s+ to load in testing. 20s would false-fail
+# on every model switch, not just genuinely stuck requests.
+LOCAL_VLM_TIMEOUT_S = 180
 
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 _CLASS_LOOKUP = {c.lower(): c for c in CLASSES}
@@ -46,10 +55,10 @@ def _normalize_class(raw_name: str, source: str) -> str:
     return canonical
 
 
-VLM_LOCAL_SERVICE_ENV = {
-    "InternVL2.5": "VLM_INTERNVL3_URL",
-    "DeepSeek-VL": "VLM_DEEPSEEK_VL_URL",
-    "BLIP-2": "VLM_BLIP2_URL",
+VLM_MODEL_IDS = {
+    "InternVL2.5": "OpenGVLab/InternVL2_5-8B",
+    "DeepSeek-VL": "deepseek-ai/deepseek-vl-7b-chat",
+    "BLIP-2": "Salesforce/blip2-opt-2.7b",
 }
 
 YOLO_CHECKPOINT_ENV = {
@@ -86,8 +95,7 @@ def _parse_vlm_json(text: str) -> dict:
 def vlm_available(vlm_name: str) -> bool:
     if vlm_name == "Qwen2.5-VL":
         return bool(os.environ.get("OPENROUTER_API_KEY"))
-    env_name = VLM_LOCAL_SERVICE_ENV.get(vlm_name)
-    return bool(env_name and os.environ.get(env_name))
+    return vlm_name in VLM_MODEL_IDS and bool(os.environ.get("VLM_SERVICE_URL"))
 
 
 def _crop(image_bytes: bytes, crop_bbox) -> bytes:
@@ -132,12 +140,15 @@ def _call_qwen_openrouter(image_bytes: bytes) -> dict:
 
 
 def _call_local_vlm(image_bytes: bytes, vlm_name: str) -> dict:
-    base_url = os.environ[VLM_LOCAL_SERVICE_ENV[vlm_name]]
+    """Calls the single shared vlm_server, telling it which model_id to run —
+    the server lazy-loads/swaps models on demand (see docstring above), so
+    this can block for a while on the first call after switching VLMs."""
+    base_url = os.environ["VLM_SERVICE_URL"]
     resp = requests.post(
         f"{base_url}/classify",
         files={"image": ("image.jpg", image_bytes, "image/jpeg")},
-        data={"prompt": _classification_prompt()},
-        timeout=REQUEST_TIMEOUT_S,
+        data={"prompt": _classification_prompt(), "model_id": VLM_MODEL_IDS[vlm_name]},
+        timeout=LOCAL_VLM_TIMEOUT_S,
     )
     resp.raise_for_status()
     data = resp.json()

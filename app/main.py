@@ -249,10 +249,13 @@ with center:
         analyze = st.button("▶ ANALYZE FRAME", disabled=analyze_disabled, type="primary")
 
         if analyze:
+            spinner_msg = ("Analyzing — if this VLM wasn't the last one used, it's loading fresh "
+                            "into VRAM now, which can take a minute...")
             try:
-                st.session_state.result = run_cascade(
-                    st.session_state.image_bytes, modality, rfdetr_model, vlm_model, threshold, mode
-                )
+                with st.spinner(spinner_msg):
+                    st.session_state.result = run_cascade(
+                        st.session_state.image_bytes, modality, rfdetr_model, vlm_model, threshold, mode
+                    )
             except ModelUnavailable as exc:
                 st.session_state.result = None
                 st.error(f"MODEL UNAVAILABLE — {exc}")

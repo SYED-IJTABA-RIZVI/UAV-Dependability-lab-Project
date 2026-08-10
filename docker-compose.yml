@@ -28,9 +28,7 @@ services:
       YOLO_SERVICE_URL: http://yolo:8000
       YOLO_RGB_CHECKPOINT_PATH: /weights/yolov12_rgb.pt
       YOLO_IR_CHECKPOINT_PATH: /weights/yolov10_ir.pt
-      VLM_INTERNVL3_URL: http://vlm-internvl3:8000
-      VLM_DEEPSEEK_VL_URL: http://vlm-deepseek-vl:8000
-      VLM_BLIP2_URL: http://vlm-blip2:8000
+      VLM_SERVICE_URL: http://vlm:8000
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,40 +50,13 @@ services:
     volumes:
       - ./weights:/weights
 
-  vlm-internvl3:
+  vlm:
     profiles: ["gpu"]
     build:
       context: ./app/vlm_server
     restart: unless-stopped
     runtime: nvidia
     environment:
-      MODEL_ID: OpenGVLab/InternVL2_5-8B
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-
-  vlm-deepseek-vl:
-    profiles: ["gpu"]
-    build:
-      context: ./app/vlm_server
-    restart: unless-stopped
-    runtime: nvidia
-    environment:
-      MODEL_ID: deepseek-ai/deepseek-vl-7b-chat
-      NVIDIA_VISIBLE_DEVICES: all
-      NVIDIA_DRIVER_CAPABILITIES: compute,utility
-    volumes:
-      - hf_cache:/root/.cache/huggingface
-
-  vlm-blip2:
-    profiles: ["gpu"]
-    build:
-      context: ./app/vlm_server
-    restart: unless-stopped
-    runtime: nvidia
-    environment:
-      MODEL_ID: Salesforce/blip2-opt-2.7b
       NVIDIA_VISIBLE_DEVICES: all
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
     volumes:

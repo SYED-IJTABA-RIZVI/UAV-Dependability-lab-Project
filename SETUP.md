@@ -48,22 +48,26 @@ machine:
    `.pt`/`.pth` are interchangeable — Ultralytics doesn't care about the extension.)
 3. **Set `OPENROUTER_API_KEY`** in `.env` (same as above, for Qwen2.5-VL).
 
-Then bring up everything — app, Postgres, YOLO, and all 3 local VLMs — with:
+Then bring up everything — app, Postgres, YOLO, and the shared VLM service —
+with:
 
 ```bash
 docker compose --profile gpu up -d --build
 ```
 
-First run will be slow: each VLM container downloads its model weights from
-Hugging Face (several GB each) into a shared cache volume, so subsequent
-restarts are fast. Check each service is actually up:
+Only YOLO loads its checkpoint(s) at startup. The `vlm` service loads nothing
+until the first `/classify` call, and only ever keeps ONE of
+InternVL2.5/DeepSeek-VL/BLIP-2 in VRAM at a time — switching which VLM you
+select in the app unloads whatever was loaded and loads the new one, which
+takes real time (an 8B checkpoint took ~25s+ in testing) on that first call
+after switching. This is deliberate: three 8-bit VLMs loaded simultaneously
+alongside YOLO doesn't reliably fit on a 20GB card; trading first-call
+latency for guaranteed VRAM headroom does. Check each service is actually up:
 
 ```bash
 curl localhost:8501                    # app
 docker compose exec yolo curl -s localhost:8000/health
-docker compose exec vlm-internvl3 curl -s localhost:8000/health
-docker compose exec vlm-deepseek-vl curl -s localhost:8000/health
-docker compose exec vlm-blip2 curl -s localhost:8000/health
+docker compose exec vlm curl -s localhost:8000/health   # loaded_model_id is null until first use
 ```
 
 ### Known unknowns on first real run
@@ -72,13 +76,14 @@ This was built and syntax-checked on a machine with no GPU — the pieces below
 were written against each library's documented API but **not run
 end-to-end**, so budget time to debug on first launch:
 
-- **VRAM fit**: YOLO (both checkpoints) + 3 VLMs loaded simultaneously (8-bit)
-  need to fit on one RTX 4000. Current checkpoints: `InternVL2_5-8B`,
-  `deepseek-vl-7b-chat`, `blip2-opt-2.7b`. If it doesn't fit: run only the
-  VLM(s) you're actively using (comment out the other `vlm-*` services, or
-  `docker compose --profile gpu up -d --build app postgres yolo
-  vlm-internvl3` to start a subset), or swap in smaller checkpoints via each
-  service's `MODEL_ID` in `docker-compose.yml`.
+- **VRAM fit**: YOLO (both checkpoints, always resident) + whichever single
+  VLM is currently loaded need to fit on one RTX 4000/20GB card. Current
+  checkpoints: `InternVL2_5-8B`, `deepseek-vl-7b-chat`, `blip2-opt-2.7b` — the
+  lazy-load/unload scheme in `app/vlm_server/server.py` exists specifically
+  because loading all three simultaneously did not fit. If even one VLM
+  loaded at a time doesn't fit alongside YOLO, swap in a smaller checkpoint
+  via `real_inference.py`'s `VLM_MODEL_IDS` mapping (the actual HF model id
+  used per VLM name).
 - **InternVL2.5 loading code** (`app/vlm_server/server.py`,
   `_load_generic_trust_remote_code` / `_infer_generic_chat`): loaded via
   `trust_remote_code=True` per its HF model card. If loading or `.chat()`

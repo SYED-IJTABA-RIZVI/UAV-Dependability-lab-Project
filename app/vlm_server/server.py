@@ -1,7 +1,12 @@
 """
-Self-hosted VLM classification server. The same image/container is reused
-for InternVL2.5-8B, DeepSeek-VL-7B-Chat, and BLIP-2 in docker-compose.yml's
-"gpu" profile — MODEL_ID picks which one loads at startup.
+Self-hosted VLM classification server, shared by InternVL2.5-8B,
+DeepSeek-VL-7B-Chat, and BLIP-2. Deliberate VRAM tradeoff: only ONE of these
+three is ever loaded at a time (plus YOLO, which stays resident in its own
+container) — each /classify request names which model_id it wants, and this
+service lazy-loads it, unloading whatever was previously loaded first if it's
+a different model. Switching models costs real time (an 8B checkpoint took
+~25s+ to load in testing) but keeps VRAM usage to one VLM's footprint instead
+of three simultaneously, which is what a 20GB card doesn't have room for.
 
 BLIP-2's `transformers` API is stable and should just work. InternVL2.5 is
 loaded via generic `AutoModel`/`trust_remote_code=True`, per its HF model
@@ -17,9 +22,10 @@ DeepSeek-VL gets its own dedicated load/infer path below
 VLChatProcessor + MultiModalityCausalLM usage example directly, rather than
 going through the generic trust_remote_code path.
 
-NOT verified end-to-end beyond that one confirmed error — the DeepSeek-VL
-fix here is written directly from their published usage example but hasn't
-itself been run on the GPU host yet.
+NOT verified end-to-end beyond the one confirmed error above — the
+DeepSeek-VL fix and this whole lazy-load/swap mechanism are written directly
+against each library's documented API but haven't themselves been run on the
+GPU host yet.
 
 BLIP-2 in particular is a weaker instruction-follower than the others (it's
 an older captioning/VQA model, not a modern chat-tuned VLM) — the response
@@ -29,44 +35,44 @@ clean JSON.
 
 import io
 import json
-import os
 import re
+import threading
 
 import torch
 from fastapi import FastAPI, File, Form, UploadFile
 from PIL import Image
 
-MODEL_ID = os.environ.get("MODEL_ID", "Salesforce/blip2-opt-2.7b")
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 
 app = FastAPI()
-_state = {"family": None, "model": None, "processor": None, "tokenizer": None}
+_state = {"model_id": None, "family": None, "model": None, "processor": None, "tokenizer": None}
+_lock = threading.Lock()
 
 
-def _load_blip2():
+def _load_blip2(model_id: str):
     from transformers import Blip2ForConditionalGeneration, Blip2Processor
 
-    processor = Blip2Processor.from_pretrained(MODEL_ID)
+    processor = Blip2Processor.from_pretrained(model_id)
     model = Blip2ForConditionalGeneration.from_pretrained(
-        MODEL_ID, load_in_8bit=True, device_map="auto"
+        model_id, load_in_8bit=True, device_map="auto"
     )
     return {"family": "blip2", "model": model, "processor": processor}
 
 
-def _load_generic_trust_remote_code():
+def _load_generic_trust_remote_code(model_id: str):
     """InternVL2.5 — ships its own modeling code on the HF repo and is loaded
     via trust_remote_code, per its model card."""
     from transformers import AutoModel, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModel.from_pretrained(
-        MODEL_ID, trust_remote_code=True, torch_dtype=torch.bfloat16,
+        model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
         load_in_8bit=True, device_map="auto",
     ).eval()
     return {"family": "internvl", "model": model, "tokenizer": tokenizer}
 
 
-def _load_deepseek_vl():
+def _load_deepseek_vl(model_id: str):
     """DeepSeek-VL (v1) — needs its own deepseek_vl package (see
     requirements.txt), not the generic trust_remote_code path. Follows their
     published usage example exactly (VLChatProcessor + MultiModalityCausalLM
@@ -74,23 +80,44 @@ def _load_deepseek_vl():
     from deepseek_vl.models import VLChatProcessor  # noqa: F401 (import registers MultiModalityCausalLM)
     from transformers import AutoModelForCausalLM
 
-    processor = VLChatProcessor.from_pretrained(MODEL_ID)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_ID, trust_remote_code=True)
+    processor = VLChatProcessor.from_pretrained(model_id)
+    model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
     model = model.to(torch.bfloat16).cuda().eval()
     return {"family": "deepseek_vl", "model": model, "processor": processor, "tokenizer": processor.tokenizer}
 
 
-@app.on_event("startup")
-def load_model():
-    model_id_lower = MODEL_ID.lower()
+def _unload_current() -> None:
+    if _state["model"] is None:
+        return
+    print(f"[vlm_server] unloading {_state['model_id']}", flush=True)
+    _state["model"] = None
+    _state["processor"] = None
+    _state["tokenizer"] = None
+    _state["family"] = None
+    _state["model_id"] = None
+    torch.cuda.empty_cache()
+
+
+def _ensure_loaded(model_id: str) -> None:
+    """Caller must hold _lock. No-op if model_id is already the one loaded —
+    switching models (or loading the first one) unloads whatever's current
+    first, so at most one VLM is ever resident in VRAM."""
+    if _state["model_id"] == model_id:
+        return
+
+    _unload_current()
+
+    model_id_lower = model_id.lower()
+    print(f"[vlm_server] loading {model_id} ...", flush=True)
     if "blip" in model_id_lower:
-        loaded = _load_blip2()
+        loaded = _load_blip2(model_id)
     elif "deepseek" in model_id_lower:
-        loaded = _load_deepseek_vl()
+        loaded = _load_deepseek_vl(model_id)
     else:
-        loaded = _load_generic_trust_remote_code()
+        loaded = _load_generic_trust_remote_code(model_id)
     _state.update(loaded)
-    print(f"[vlm_server] loaded {MODEL_ID} as family={_state['family']}")
+    _state["model_id"] = model_id
+    print(f"[vlm_server] loaded {model_id} as family={_state['family']}", flush=True)
 
 
 def _build_prompt(user_prompt: str) -> str:
@@ -150,8 +177,6 @@ def _infer_generic_chat(image: Image.Image, prompt: str) -> str:
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     pixel_values = transform(image.convert("RGB")).unsqueeze(0).to(model.device, torch.bfloat16)
-    print(f"[DEBUG] chat() call types: tokenizer={type(tokenizer)} "
-          f"pixel_values={type(pixel_values)} prompt={type(prompt)}", flush=True)
     response = model.chat(
         tokenizer=tokenizer, pixel_values=pixel_values, question=prompt,
         generation_config=dict(max_new_tokens=200, do_sample=False),
@@ -187,19 +212,22 @@ def _parse_response(text: str) -> dict:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_id": MODEL_ID, "family": _state["family"]}
+    return {"status": "ok", "loaded_model_id": _state["model_id"], "family": _state["family"]}
 
 
 @app.post("/classify")
-async def classify(image: UploadFile = File(...), prompt: str = Form(default="")):
+async def classify(image: UploadFile = File(...), prompt: str = Form(default=""), model_id: str = Form(...)):
     img = Image.open(io.BytesIO(await image.read())).convert("RGB")
     full_prompt = _build_prompt(prompt)
 
-    if _state["family"] == "blip2":
-        raw = _infer_blip2(img, full_prompt)
-    elif _state["family"] == "deepseek_vl":
-        raw = _infer_deepseek_vl(img, full_prompt)
-    else:
-        raw = _infer_generic_chat(img, full_prompt)
+    with _lock:
+        _ensure_loaded(model_id)
+
+        if _state["family"] == "blip2":
+            raw = _infer_blip2(img, full_prompt)
+        elif _state["family"] == "deepseek_vl":
+            raw = _infer_deepseek_vl(img, full_prompt)
+        else:
+            raw = _infer_generic_chat(img, full_prompt)
 
     return _parse_response(raw)
