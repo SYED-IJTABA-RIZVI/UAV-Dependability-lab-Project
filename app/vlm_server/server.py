@@ -56,7 +56,7 @@ CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 # Keep in sync with real_inference.py's VLM_MODEL_IDS values — duplicated
 # rather than shared since these run in separate containers.
 PRELOAD_MODEL_IDS = [
-    "OpenGVLab/InternVL2_5-8B",
+    # "OpenGVLab/InternVL2_5-8B",  # excluded from UI + preload — still has an unresolved bug, see below
     "deepseek-ai/deepseek-vl-7b-chat",
     "Salesforce/blip2-opt-2.7b",
 ]

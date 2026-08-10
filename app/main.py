@@ -16,7 +16,10 @@ st.set_page_config(page_title="Sky Object Detection Tool", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
 
 RFDETR_MODELS = ["YOLOv12-RGB (built-in)", "YOLOv10-IR / Thermal (built-in)"]
-VLM_MODELS = ["InternVL2.5", "DeepSeek-VL", "Qwen2.5-VL", "BLIP-2"]
+# InternVL2.5 deliberately excluded — still has an unresolved bug
+# (see vlm_server/server.py's _load_generic_trust_remote_code docstring).
+# Code stays in place, just not offered in the UI until it's actually fixed.
+VLM_MODELS = ["DeepSeek-VL", "Qwen2.5-VL", "BLIP-2"]
 MODES = [
     ("YOLO Only", "EDGE-FAST", "Real-time detection only. Low latency; no fallback if confidence is low."),
     ("VLM Only", "DEEP-VLM", "Multi-modal reasoning on every image. Higher contextual accuracy, slower inference."),
@@ -34,7 +37,7 @@ db_ready = _init_db_once()
 
 for key, default in [
     ("result", None), ("image_bytes", None), ("filename", None),
-    ("folder_result", None), ("eval_result", None),
+    ("folder_result", None),
 ]:
     if key not in st.session_state:
         st.session_state[key] = default
@@ -73,13 +76,12 @@ with left:
     st.markdown('<div class="sdt-panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">&uarr; INPUT SOURCE</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="panel-sub">Upload a single image, batch-process a folder, or run a full '
-        'evaluation against a labeled test folder.</div>',
+        '<div class="panel-sub">Upload a single image, or batch-process a folder.</div>',
         unsafe_allow_html=True,
     )
 
     st.markdown('<div class="source-tabs">', unsafe_allow_html=True)
-    tab = st.radio("Source", ["IMAGE", "FOLDER", "TEST FOLDER", "HISTORY"], horizontal=True,
+    tab = st.radio("Source", ["IMAGE", "FOLDER", "HISTORY"], horizontal=True,
                     label_visibility="collapsed", key="source_tab")
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -121,22 +123,9 @@ with left:
         folder_output_path = st.text_input("Output path", placeholder="/path/to/output",
                                             label_visibility="collapsed", key="folder_output")
 
-    elif tab == "TEST FOLDER":
-        st.markdown('<div class="section-label">TEST FOLDER PATH</div>', unsafe_allow_html=True)
-        test_folder_path = st.text_input("Test folder path", placeholder="/path/to/test_folder",
-                                          label_visibility="collapsed")
-        st.caption("Must contain images/ and labels/ (YOLO .txt) subfolders.")
-        st.markdown('<div class="section-label">OUTPUT LOCATION PATH</div>', unsafe_allow_html=True)
-        eval_output_path = st.text_input("Output path", placeholder="/path/to/output",
-                                          label_visibility="collapsed", key="eval_output")
-        st.markdown('<div class="section-label">MATCH IOU THRESHOLD</div>', unsafe_allow_html=True)
-        iou_threshold = st.slider("IoU threshold", min_value=0.1, max_value=0.9, value=0.5, step=0.05,
-                                   label_visibility="collapsed")
-
     else:  # HISTORY
         st.markdown(
-            '<div class="panel-sub">Browse past runs (single image, folder, test-folder eval) '
-            'saved to Postgres.</div>',
+            '<div class="panel-sub">Browse past runs (single image, folder) saved to Postgres.</div>',
             unsafe_allow_html=True,
         )
 
@@ -150,7 +139,7 @@ with right:
     st.markdown('<div class="sdt-panel">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">&#9670; HISTORY</div>', unsafe_allow_html=True)
     st.markdown(
-        '<div class="panel-sub">Every single-image, folder, and test-folder run is persisted '
+        '<div class="panel-sub">Every single-image and folder run is persisted '
         'to Postgres — pick one on the left to inspect it.</div>',
         unsafe_allow_html=True,
     )
@@ -205,7 +194,7 @@ with right:
     analyze_disabled = st.session_state.image_bytes is None
     st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------- LEFT (part 2): RUN buttons for FOLDER / TEST FOLDER ----------
+# ---------- LEFT (part 2): RUN button for FOLDER ----------
 with left:
     if tab == "FOLDER":
         st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
@@ -218,20 +207,6 @@ with left:
                     )
                 except Exception as exc:
                     st.error(f"Folder run failed: {exc}")
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    elif tab == "TEST FOLDER":
-        st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
-        run_disabled = not (test_folder_path and eval_output_path)
-        if st.button("▶ RUN EVALUATION", disabled=run_disabled, type="primary", use_container_width=True):
-            with st.spinner("Running evaluation..."):
-                try:
-                    st.session_state.eval_result = batch.run_test_folder(
-                        test_folder_path, eval_output_path, modality, rfdetr_model, vlm_model,
-                        threshold, mode, iou_threshold
-                    )
-                except Exception as exc:
-                    st.error(f"Evaluation run failed: {exc}")
         st.markdown("</div>", unsafe_allow_html=True)
 
 # ---------- CENTER: WORKSPACE ----------
@@ -335,31 +310,6 @@ with center:
                 picked = st.selectbox("Preview image", names, label_visibility="collapsed")
                 path = next(im["annotated_path"] for im in fr["images"] if im["filename"] == picked)
                 st.image(Image.open(path), use_container_width=True)
-
-    elif tab == "TEST FOLDER":
-        st.markdown('<div class="ws-eyebrow">ACTIVE WORKSPACE</div><div class="ws-title">Test Folder Evaluation</div>',
-                    unsafe_allow_html=True)
-
-        er = st.session_state.eval_result
-        if er is None:
-            st.markdown(
-                '<div style="padding:60px; text-align:center; color:var(--text-low); '
-                'font-family:var(--mono); background:var(--panel-alt); border-radius:4px;">'
-                'SET A TEST FOLDER + OUTPUT PATH AND RUN THE EVALUATION</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.markdown(
-                f'<div class="ws-footer">{er["num_images"]} IMAGES EVALUATED &middot; OUTPUT: {er["output_path"]}</div>',
-                unsafe_allow_html=True,
-            )
-            if er["images"]:
-                names = [im["filename"] for im in er["images"]]
-                picked = st.selectbox("Preview image", names, label_visibility="collapsed")
-                path = next(im["annotated_path"] for im in er["images"] if im["filename"] == picked)
-                st.image(Image.open(path), use_container_width=True)
-                st.caption("Dashed gray = ground truth · solid color = prediction (tagged YOLO/VLM) "
-                           "· red UNDETECTED = ground truth the pipeline never matched.")
 
     else:  # HISTORY
         st.markdown('<div class="ws-eyebrow">ACTIVE WORKSPACE</div><div class="ws-title">Run History</div>',
@@ -469,88 +419,10 @@ with right:
                 st.download_button("DOWNLOAD results.csv", f, file_name="results.csv", use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-    elif tab == "TEST FOLDER":
-        er = st.session_state.eval_result
-        if er is not None:
-            st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
-
-            combined = er["scope_metrics"]["combined"]
-            st.markdown(
-                f"""
-                <div class="metric-box" style="margin-top:0;">
-                  <div class="metric-title">COMBINED PIPELINE METRICS</div>
-                  <div class="latency-row">
-                    <div class="latency-item"><span class="latency-label">PRECISION</span><span class="latency-val">{combined['precision']:.2f}</span></div>
-                    <div class="latency-item"><span class="latency-label">RECALL</span><span class="latency-val">{combined['recall']:.2f}</span></div>
-                    <div class="latency-item"><span class="latency-label">F1</span><span class="latency-val">{combined['f1']:.2f}</span></div>
-                  </div>
-                  <div class="latency-row">
-                    <div class="latency-item"><span class="latency-label">ACCURACY</span><span class="latency-val">{combined['accuracy']:.2f}</span></div>
-                    <div class="latency-item"><span class="latency-label">MEAN IOU</span><span class="latency-val">{combined['mean_iou']:.2f}</span></div>
-                    <div class="latency-item"><span class="latency-label">RATE</span><span class="latency-val">{combined['images_per_sec']:.1f}/s</span></div>
-                  </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.markdown('<div class="section-label">SCOPE COMPARISON</div>', unsafe_allow_html=True)
-            scope_rows = []
-            for scope_key, scope_name in [("rfdetr", "YOLO"), ("vlm", "VLM"), ("combined", "Combined")]:
-                m = er["scope_metrics"][scope_key]
-                scope_rows.append({
-                    "Scope": scope_name, "Precision": round(m["precision"], 2), "Recall": round(m["recall"], 2),
-                    "F1": round(m["f1"], 2), "Accuracy": round(m["accuracy"], 2),
-                    "Mean IoU": round(m["mean_iou"], 2), "Avg time/img (ms)": round(m["avg_time_per_image_ms"], 1),
-                })
-            st.dataframe(scope_rows, hide_index=True, use_container_width=True)
-
-            st.markdown('<div class="section-label">UNDETECTED &mdash; BY CLASS (% OF UNDETECTED)</div>',
-                         unsafe_allow_html=True)
-            if er["undetected_breakdown"]:
-                st.bar_chart(er["undetected_breakdown"])
-            else:
-                st.caption("No undetected ground-truth objects in this run.")
-
-            st.markdown('<div class="section-label">CONFUSION MATRICES</div>', unsafe_allow_html=True)
-            hm_tabs = st.tabs(["YOLO", "VLM", "Combined", "IoU dist."])
-            for hm_tab, key in zip(hm_tabs, ["rfdetr", "vlm", "combined", "iou_distribution"]):
-                with hm_tab:
-                    st.image(er["heatmap_paths"][key], use_container_width=True)
-
-            st.markdown('<div class="section-label">DOWNLOADS</div>', unsafe_allow_html=True)
-            for label, path in [
-                ("results.csv (per-detection)", er["csv_paths"]["results"]),
-                ("images_summary.csv", er["csv_paths"]["images_summary"]),
-                ("metrics_summary.csv", er["csv_paths"]["metrics_summary"]),
-                ("undetected_by_class.csv", er["csv_paths"]["undetected_by_class"]),
-            ]:
-                with open(path, "rb") as f:
-                    st.download_button(f"DOWNLOAD {label}", f, file_name=path.split("/")[-1],
-                                        use_container_width=True, key=f"dl_{label}")
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
     else:  # HISTORY
         detail = st.session_state.get("history_detail")
         if detail is not None:
             st.markdown('<div class="sdt-panel" style="margin-top:14px;">', unsafe_allow_html=True)
-
-            if detail["metrics"]:
-                st.markdown('<div class="section-label">SCOPE METRICS</div>', unsafe_allow_html=True)
-                scope_rows = [
-                    {"Scope": m["scope"].capitalize(), "Precision": round(m["precision"], 2),
-                     "Recall": round(m["recall"], 2), "F1": round(m["f1"], 2),
-                     "Accuracy": round(m["accuracy"], 2), "Mean IoU": round(m["mean_iou"], 2),
-                     "Avg time/img (ms)": round(m["avg_time_per_image_ms"], 1)}
-                    for m in detail["metrics"]
-                ]
-                st.dataframe(scope_rows, hide_index=True, use_container_width=True)
-
-            if detail["undetected"]:
-                st.markdown('<div class="section-label">UNDETECTED &mdash; BY CLASS (% OF UNDETECTED)</div>',
-                             unsafe_allow_html=True)
-                st.bar_chart({u["class_name"]: u["percentage"] for u in detail["undetected"]})
 
             st.markdown('<div class="section-label">DETECTIONS (SELECTED IMAGE)</div>', unsafe_allow_html=True)
             picked_img = st.session_state.get("history_img_pick")
@@ -558,8 +430,7 @@ with right:
             if rec and rec["detections"]:
                 det_rows = [
                     {"Source": d["source"], "Class": d["class_name"], "Confidence": round(d["confidence"], 2),
-                     "Cascaded": d["cascaded"], "IoU": round(d["iou"], 2) if d["iou"] is not None else "",
-                     "Match": d["match_result"] or "", "Latency (ms)": d["latency_ms"],
+                     "Cascaded": d["cascaded"], "Latency (ms)": d["latency_ms"],
                      "VLM reasoning": d["reasoning"] or ""}
                     for d in rec["detections"]
                 ]
