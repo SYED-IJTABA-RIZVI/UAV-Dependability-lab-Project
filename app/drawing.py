@@ -53,6 +53,25 @@ def draw_single(image: Image.Image, bbox, label: str, color: str) -> Image.Image
     return img
 
 
+def draw_multi(image: Image.Image, detections: list, class_color: dict, source_label: str = "YOLO") -> Image.Image:
+    """One box + label per detection, no ground-truth overlay (that's
+    draw_multi_eval, for TEST FOLDER). Used so every detected object gets
+    drawn, not just the single highest-confidence one."""
+    img = image.convert("RGB").copy()
+    w, h = img.size
+    draw = ImageDraw.Draw(img)
+
+    for det in detections:
+        x, y, bw, bh = det["bbox"]
+        px, py, pw, ph = x * w, y * h, bw * w, bh * h
+        color = class_color.get(det["class_name"], "#2C5A7C")
+        draw.rectangle([px, py, px + pw, py + ph], outline=color, width=3)
+        label = f"{det['class_name']} · {det['confidence']:.2f} · {source_label}"
+        _tag(draw, px, py, label, color)
+
+    return img
+
+
 def draw_multi_eval(image: Image.Image, gt_boxes: list, combined_dets: list, fn_gt_ids: set,
                      class_color: dict) -> Image.Image:
     """

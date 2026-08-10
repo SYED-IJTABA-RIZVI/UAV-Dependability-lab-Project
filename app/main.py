@@ -6,7 +6,7 @@ from PIL import Image
 
 import batch
 import db
-from drawing import draw_single
+from drawing import draw_multi
 from mock_backend import CLASS_COLOR, ModelUnavailable, run_cascade
 from style import CSS
 
@@ -262,10 +262,8 @@ with center:
                 out_dir = Path(single_output_path) if single_output_path else Path(DEFAULT_SINGLE_OUTPUT_DIR)
                 out_dir.mkdir(parents=True, exist_ok=True)
                 annotated_img = Image.open(io.BytesIO(st.session_state.image_bytes))
-                if res.get("rfdetr") is not None:
-                    r = res["rfdetr"]
-                    lbl = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
-                    annotated_img = draw_single(annotated_img, r["bbox"], lbl, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
+                if res.get("rfdetr_all"):
+                    annotated_img = draw_multi(annotated_img, res["rfdetr_all"], CLASS_COLOR)
                 annotated_path = out_dir / st.session_state.filename
                 annotated_img.convert("RGB").save(annotated_path)
 
@@ -277,23 +275,21 @@ with center:
 
         if st.session_state.image_bytes is not None:
             img = Image.open(io.BytesIO(st.session_state.image_bytes))
-            if result is not None and result.get("rfdetr") is not None:
-                r = result["rfdetr"]
-                label = f"{r['class_name']} · {r['confidence']:.2f} · YOLO"
-                img = draw_single(img, r["bbox"], label, CLASS_COLOR.get(r["class_name"], "#2C5A7C"))
+            if result is not None and result.get("rfdetr_all"):
+                img = draw_multi(img, result["rfdetr_all"], CLASS_COLOR)
             st.image(img, use_container_width=True)
 
-            if result is not None and result.get("rfdetr") is not None:
-                r = result["rfdetr"]
-                bx, by, bw, bh = r["bbox"]
+            if result is not None and result.get("rfdetr_all"):
                 iw, ih = img.size
-                st.code(
-                    f"YOLO bbox (fractional x,y,w,h): ({bx:.4f}, {by:.4f}, {bw:.4f}, {bh:.4f})\n"
-                    f"Image size: {iw} x {ih}\n"
-                    f"YOLO bbox (pixels x1,y1,x2,y2): "
-                    f"({bx*iw:.1f}, {by*ih:.1f}, {(bx+bw)*iw:.1f}, {(by+bh)*ih:.1f})",
-                    language="text",
-                )
+                lines = [f"Image size: {iw} x {ih}", f"YOLO detections: {len(result['rfdetr_all'])}"]
+                for i, r in enumerate(result["rfdetr_all"], start=1):
+                    bx, by, bw, bh = r["bbox"]
+                    lines.append(
+                        f"  [{i}] {r['class_name']} · {r['confidence']:.2f} · "
+                        f"fractional=({bx:.4f}, {by:.4f}, {bw:.4f}, {bh:.4f}) · "
+                        f"pixels=({bx*iw:.1f}, {by*ih:.1f}, {(bx+bw)*iw:.1f}, {(by+bh)*ih:.1f})"
+                    )
+                st.code("\n".join(lines), language="text")
         else:
             st.markdown(
                 '<div style="padding:60px; text-align:center; color:var(--text-low); '

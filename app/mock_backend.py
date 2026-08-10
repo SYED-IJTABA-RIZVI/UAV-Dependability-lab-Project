@@ -96,23 +96,30 @@ def _get_vlm_result(image_bytes: bytes, vlm_model: str) -> dict:
     raise ModelUnavailable(f"{vlm_model} is not configured (no API key / service URL set).")
 
 
-def _get_yolo_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> dict:
+def _get_yolo_result(image_bytes: bytes, modality: str, rfdetr_model: str) -> tuple[dict, list]:
+    """Returns (best_detection, all_detections). best_detection drives the
+    existing single-verdict cascade/VLM-escalation logic unchanged;
+    all_detections is every box YOLO actually found, for drawing every
+    detected object rather than just the highest-confidence one."""
     if real_inference.yolo_available(modality):
         try:
             detections = real_inference.run_real_yolo(image_bytes, modality)
             if detections:
-                return max(detections, key=lambda d: d["confidence"])
-            return {
+                return max(detections, key=lambda d: d["confidence"]), detections
+            empty = {
                 "source": "YOLO", "model_name": rfdetr_model, "class_name": "No Detection",
                 "confidence": 0.0, "bbox": (0.0, 0.0, 1.0, 1.0), "latency_ms": 0,
             }
+            return empty, []
         except Exception as exc:
             if ALLOW_MOCK_FALLBACK:
-                return run_yolo(image_bytes, modality, rfdetr_model)
+                mock_res = run_yolo(image_bytes, modality, rfdetr_model)
+                return mock_res, [mock_res]
             raise ModelUnavailable(f"YOLO ({modality}) failed: {exc}") from exc
 
     if ALLOW_MOCK_FALLBACK:
-        return run_yolo(image_bytes, modality, rfdetr_model)
+        mock_res = run_yolo(image_bytes, modality, rfdetr_model)
+        return mock_res, [mock_res]
     raise ModelUnavailable(f"YOLO ({modality}) is not configured (checkpoint/service missing).")
 
 
@@ -121,7 +128,7 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
     """
     mode: "YOLO Only" | "VLM Only" | "YOLO & VLM (Adaptive Fallback)"
     """
-    result = {"rfdetr": None, "vlm": None, "cascaded": False, "final": None}
+    result = {"rfdetr": None, "rfdetr_all": [], "vlm": None, "cascaded": False, "final": None}
 
     if mode == "VLM Only":
         vlm_res = _get_vlm_result(image_bytes, vlm_model)
@@ -129,8 +136,9 @@ def run_cascade(image_bytes: bytes, modality: str, rfdetr_model: str, vlm_model:
         result["final"] = vlm_res
         return result
 
-    rfdetr_res = _get_yolo_result(image_bytes, modality, rfdetr_model)
+    rfdetr_res, rfdetr_all = _get_yolo_result(image_bytes, modality, rfdetr_model)
     result["rfdetr"] = rfdetr_res
+    result["rfdetr_all"] = rfdetr_all
     result["final"] = rfdetr_res
 
     if mode == "YOLO Only":

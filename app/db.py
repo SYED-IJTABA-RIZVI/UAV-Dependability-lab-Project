@@ -193,8 +193,8 @@ def save_single_image_run(filename: str, modality: str, rfdetr_model: str, vlm_m
             session.add(image)
             session.flush()
 
-            if cascade_result.get("rfdetr"):
-                _add_detection(session, image, cascade_result["rfdetr"])
+            for det in cascade_result.get("rfdetr_all") or ([cascade_result["rfdetr"]] if cascade_result.get("rfdetr") else []):
+                _add_detection(session, image, det)
             if cascade_result.get("vlm"):
                 v = dict(cascade_result["vlm"])
                 v["cascaded"] = cascade_result.get("cascaded", False)
@@ -223,8 +223,8 @@ def save_folder_run(folder_path: str, output_path: str, modality: str, rfdetr_mo
                 session.flush()
 
                 result = item["result"]
-                if result.get("rfdetr"):
-                    _add_detection(session, image, result["rfdetr"])
+                for det in result.get("rfdetr_all") or ([result["rfdetr"]] if result.get("rfdetr") else []):
+                    _add_detection(session, image, det)
                 if result.get("vlm"):
                     v = dict(result["vlm"])
                     v["cascaded"] = result.get("cascaded", False)

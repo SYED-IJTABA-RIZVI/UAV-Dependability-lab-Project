@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image
 
 import db
-from drawing import draw_multi_eval, draw_single
+from drawing import draw_multi, draw_multi_eval
 from labels import IMAGE_EXTS, discover_test_folder, load_class_map, parse_label_file
 from metrics import compute_scope_metrics, iou, undetected_class_breakdown
 from mock_backend import CLASS_COLOR, run_batch_cascade, run_cascade
@@ -74,8 +74,7 @@ def run_folder(folder_path: str, output_path: str, modality: str, rfdetr_model: 
         img = Image.open(io.BytesIO(image_bytes))
 
         final = result["final"]
-        label = f"{final['class_name']} · {final['confidence']:.2f} · {final['source']}"
-        annotated = draw_single(img, final["bbox"], label, CLASS_COLOR.get(final["class_name"], "#2C5A7C"))
+        annotated = draw_multi(img, result.get("rfdetr_all", []), CLASS_COLOR)
         annotated_path = annotated_dir / p.name
         annotated.convert("RGB").save(annotated_path)
 
