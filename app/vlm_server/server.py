@@ -111,14 +111,21 @@ def _load_generic_trust_remote_code(model_id: str):
 def _load_deepseek_vl(model_id: str):
     """DeepSeek-VL (v1) — needs its own deepseek_vl package (see
     requirements.txt), not the generic trust_remote_code path. Follows their
-    published usage example exactly (VLChatProcessor + MultiModalityCausalLM
-    via AutoModelForCausalLM)."""
+    published usage example (VLChatProcessor + MultiModalityCausalLM via
+    AutoModelForCausalLM), except load_in_8bit is added here even though
+    their example doesn't use it — full bf16 (~14GB for 7B params) crashed
+    the container on the lab GPU host (connection dropped mid-request, no
+    HTTP response — a process crash, not a clean error), consistent with an
+    OOM kill on a 20GB card once YOLO's own footprint is added. 8-bit
+    matches what the other two loaders already do."""
     from deepseek_vl.models import VLChatProcessor  # noqa: F401 (import registers MultiModalityCausalLM)
     from transformers import AutoModelForCausalLM
 
     processor = VLChatProcessor.from_pretrained(model_id)
-    model = AutoModelForCausalLM.from_pretrained(model_id, trust_remote_code=True)
-    model = model.to(torch.bfloat16).cuda().eval()
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
+        load_in_8bit=True, device_map="auto",
+    ).eval()
     return {"family": "deepseek_vl", "model": model, "processor": processor, "tokenizer": processor.tokenizer}
 
 
