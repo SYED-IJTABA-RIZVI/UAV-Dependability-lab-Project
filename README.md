@@ -161,9 +161,3 @@ All configuration lives in `.env` (copy from `.env.example`). Key variables:
 GPU-host-only settings (checkpoint paths, VLM model IDs) live directly in `docker-compose.yml` / `app/vlm_server/server.py` — see `SETUP.md`.
 
 ---
-
-## Known limitations
-
-- **InternVL2.5 is implemented but not currently offered in the UI.** It has an unresolved loading bug (its tokenizer fails to initialize correctly under `trust_remote_code`) that hasn't been root-caused yet. The code stays in `vlm_server/server.py`, ready to re-enable once fixed.
-- **First use of a local VLM after switching models is slow** (a full VRAM load, not just a disk read) — by design, since only one local VLM stays resident in VRAM at a time. See the Architecture section above.
-- **No ground-truth evaluation mode.** Accuracy/precision-recall metrics against labeled datasets aren't currently part of the app — it's detection + classification only.
