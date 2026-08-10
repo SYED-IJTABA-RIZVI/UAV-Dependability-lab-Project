@@ -112,19 +112,31 @@ def _load_deepseek_vl(model_id: str):
     """DeepSeek-VL (v1) — needs its own deepseek_vl package (see
     requirements.txt), not the generic trust_remote_code path. Follows their
     published usage example (VLChatProcessor + MultiModalityCausalLM via
-    AutoModelForCausalLM), except load_in_8bit is added here even though
-    their example doesn't use it — full bf16 (~14GB for 7B params) crashed
-    the container on the lab GPU host (connection dropped mid-request, no
-    HTTP response — a process crash, not a clean error), consistent with an
-    OOM kill on a 20GB card once YOLO's own footprint is added. 8-bit
-    matches what the other two loaders already do."""
+    AutoModelForCausalLM), with one deviation: quantize only the LLM
+    backbone (llm_int8_skip_modules), not the whole model.
+
+    Tried plain full-bf16 first (matching their example exactly): the
+    container connection dropped mid-request with no HTTP response at all on
+    the lab GPU host, consistent with an OOM kill (7B params in bf16 is
+    ~14GB, tight alongside YOLO's own footprint on a 20GB card). Tried
+    whole-model load_in_8bit=True next (matching the other two loaders):
+    that failed differently and more informatively — a real ValueError deep
+    in their custom SAM-based vision tower (deepseek_vl/models/sam.py's
+    attention block), because bitsandbytes' int8 matmul kernel only accepts
+    2D/3D tensors and the vision tower's forward pass uses higher-rank ones.
+    So: quantize just the LLM decoder (the overwhelming majority of the 7B
+    params) via llm_int8_skip_modules=["vision_model", "aligner"] (their
+    actual top-level submodule names, per the traceback:
+    self.aligner(self.vision_model(images))), leaving the vision tower in
+    full precision where it's incompatible with 8-bit anyway."""
     from deepseek_vl.models import VLChatProcessor  # noqa: F401 (import registers MultiModalityCausalLM)
-    from transformers import AutoModelForCausalLM
+    from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 
     processor = VLChatProcessor.from_pretrained(model_id)
+    quant_config = BitsAndBytesConfig(load_in_8bit=True, llm_int8_skip_modules=["vision_model", "aligner"])
     model = AutoModelForCausalLM.from_pretrained(
         model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
-        load_in_8bit=True, device_map="auto",
+        quantization_config=quant_config, device_map="auto",
     ).eval()
     return {"family": "deepseek_vl", "model": model, "processor": processor, "tokenizer": processor.tokenizer}
 
