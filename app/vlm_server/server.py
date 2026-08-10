@@ -183,10 +183,18 @@ def _build_prompt(user_prompt: str) -> str:
 
 
 def _infer_blip2(image: Image.Image, prompt: str) -> str:
+    """generate() on BLIP-2's OPT backbone (decoder-only) returns the full
+    sequence — input prompt tokens + generated continuation — not just the
+    new text. Un-sliced, the decoded text always contains the prompt itself,
+    and since our prompt lists "Airplane" first among the class names, the
+    lenient fallback in _parse_response matched it every single time
+    regardless of what the model actually predicted. Slice off the prompt
+    length so only the newly generated tokens get decoded."""
     model, processor = _state["model"], _state["processor"]
     inputs = processor(image, prompt, return_tensors="pt").to(model.device, torch.float16)
     out = model.generate(**inputs, max_new_tokens=200)
-    return processor.decode(out[0], skip_special_tokens=True)
+    generated_only = out[:, inputs["input_ids"].shape[1]:]
+    return processor.decode(generated_only[0], skip_special_tokens=True)
 
 
 def _infer_deepseek_vl(image: Image.Image, prompt: str) -> str:
