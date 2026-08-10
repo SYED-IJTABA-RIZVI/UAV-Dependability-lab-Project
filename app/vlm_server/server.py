@@ -183,28 +183,22 @@ def _build_prompt(user_prompt: str) -> str:
 
 
 def _infer_blip2(image: Image.Image, prompt: str) -> str:
-    """generate() on BLIP-2's OPT backbone (decoder-only) returns the full
-    sequence — input prompt tokens + generated continuation — not just the
-    new text. Un-sliced, the decoded text always contains the prompt itself,
-    and since our prompt lists "Airplane" first among the class names, the
-    lenient fallback in _parse_response matched it every single time
-    regardless of what the model actually predicted. Slice off the prompt
-    length so only the newly generated tokens get decoded.
-
-    Also: BLIP-2 is a weak instruction-follower and got confused by the
-    shared "respond with JSON" prompt built for the other two (confirmed on
-    the lab GPU host — after fixing the slicing bug above, it generated an
-    empty string, i.e. hit EOS immediately rather than attempt an answer).
-    Ignore the passed `prompt` and use BLIP-2's own trained VQA convention
-    ("Question: ... Answer:") instead — _parse_response's lenient fallback
-    already handles a short free-text answer, no JSON needed."""
+    """BLIP-2 is a weak instruction-follower — confirmed on the lab GPU host
+    with two failures under free-text generate(): (1) given the shared
+    "respond with JSON" prompt built for the other two VLMs, it generated an
+    empty string (hit EOS immediately); (2) given a simpler open VQA prompt,
+    it answered with a specific instance ("seagull") instead of the general
+    category. Ignore the passed `prompt` and use BLIP-2's own trained VQA
+    convention with an explicit, strict instruction to answer with only one
+    of the 4 class words — _parse_response validates the result and reports
+    "No Detection" rather than guessing/erroring if it still doesn't match."""
     model, processor = _state["model"], _state["processor"]
     blip2_prompt = (
-        "Question: what flying object is in this image — "
-        f"{', '.join(c.lower() for c in CLASSES)}? Answer:"
+        "Question: is the object in this image an airplane, a bird, a drone, or a helicopter? "
+        "Answer with exactly one of those four words, nothing else. Answer:"
     )
     inputs = processor(image, blip2_prompt, return_tensors="pt").to(model.device, torch.float16)
-    out = model.generate(**inputs, max_new_tokens=50, min_new_tokens=1)
+    out = model.generate(**inputs, max_new_tokens=10, min_new_tokens=1)
     generated_only = out[:, inputs["input_ids"].shape[1]:]
     return processor.decode(generated_only[0], skip_special_tokens=True)
 
@@ -280,12 +274,14 @@ def _parse_response(text: str) -> dict:
     except (json.JSONDecodeError, KeyError, ValueError, TypeError):
         pass
 
-    # Lenient fallback: find a class name mentioned anywhere in the raw text.
+    # Strict: find a class name mentioned in the raw text, no synonyms/near
+    # misses. If the model's answer doesn't literally contain one of the 4
+    # class words, report that honestly instead of guessing or erroring.
     for cls in CLASSES:
         if re.search(rf"\b{re.escape(cls)}\b", text, re.IGNORECASE):
             return {"class_name": cls, "confidence": 0.5, "reasoning": text}
 
-    raise ValueError(f"Could not extract a known class from model output: {text!r}")
+    return {"class_name": "No Detection", "confidence": 0.0, "reasoning": text}
 
 
 @app.get("/health")

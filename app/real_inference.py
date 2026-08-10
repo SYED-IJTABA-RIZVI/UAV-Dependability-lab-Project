@@ -41,6 +41,7 @@ LOCAL_VLM_TIMEOUT_S = 180
 
 CLASSES = ["Airplane", "Bird", "Drone", "Helicopter"]
 _CLASS_LOOKUP = {c.lower(): c for c in CLASSES}
+NO_DETECTION = "No Detection"
 
 
 def _normalize_class(raw_name: str, source: str) -> str:
@@ -48,8 +49,16 @@ def _normalize_class(raw_name: str, source: str) -> str:
     return this app's exact casing for a class name — a checkpoint's embedded
     labels might be "drone" where this app expects "Drone", for example.
     Match case-insensitively (and tolerate stray whitespace) rather than
-    rejecting an otherwise-correct result over casing alone."""
-    canonical = _CLASS_LOOKUP.get(str(raw_name).strip().lower())
+    rejecting an otherwise-correct result over casing alone.
+
+    NO_DETECTION is a legitimate, honestly-reported outcome (the VLM
+    responded, but not with one of the 4 known classes — see
+    vlm_server/server.py's _parse_response) and passes through unchanged,
+    not an error."""
+    raw_name = str(raw_name).strip()
+    if raw_name == NO_DETECTION:
+        return NO_DETECTION
+    canonical = _CLASS_LOOKUP.get(raw_name.lower())
     if canonical is None:
         raise ValueError(f"{source} returned unknown class: {raw_name!r}")
     return canonical
