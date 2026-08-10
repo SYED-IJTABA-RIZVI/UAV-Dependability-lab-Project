@@ -35,6 +35,12 @@ services:
     volumes:
       - ./app:/app
       - ./data:/data
+      # Host dataset location — lets FOLDER/TEST FOLDER path inputs reference
+      # /datasets/... instead of requiring files to be copied into ./data.
+      # Set DATASETS_PATH in your own .env (machine-specific, gitignored) —
+      # e.g. DATASETS_PATH=D:/datasets on Windows. Defaults to ./data so this
+      # doesn't break on machines (e.g. the Linux lab PC) with no override.
+      - ${DATASETS_PATH:-./data}:/datasets
 
   yolo:
     profiles: ["gpu"]
