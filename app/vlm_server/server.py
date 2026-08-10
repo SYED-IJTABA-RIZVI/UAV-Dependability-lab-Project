@@ -232,6 +232,9 @@ def _infer_generic_chat(image: Image.Image, prompt: str) -> str:
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
     pixel_values = transform(image.convert("RGB")).unsqueeze(0).to(model.device, torch.bfloat16)
+    print(f"[DEBUG] model={type(model)} tokenizer={type(tokenizer)} tokenizer_value={tokenizer!r} "
+          f"pixel_values={type(pixel_values)} prompt={type(prompt)} "
+          f"chat_attr={type(getattr(model, 'chat', None))}", flush=True)
     response = model.chat(
         tokenizer=tokenizer, pixel_values=pixel_values, question=prompt,
         generation_config=dict(max_new_tokens=200, do_sample=False),
