@@ -97,13 +97,25 @@ def _load_blip2(model_id: str):
 
 def _load_generic_trust_remote_code(model_id: str):
     """InternVL2.5 — ships its own modeling code on the HF repo and is loaded
-    via trust_remote_code, per its model card."""
+    via trust_remote_code, per its model card.
+
+    Dropped load_in_8bit here: confirmed working in a standalone reference
+    script on the lab GPU host WITHOUT quantization (torch_dtype=bfloat16,
+    low_cpu_mem_usage=True, device_map="auto", offload_buffers=True — CPU
+    offload for whatever doesn't fit in VRAM, if anything). We independently
+    confirmed 8-bit quantization breaks a different VLM's (DeepSeek-VL)
+    custom trust_remote_code internals in a very concrete way (a real
+    ValueError in its vision tower) — plausible this is the same class of
+    problem behind InternVL2.5's still-unexplained
+    "tokenizer became a bool inside chat()" bug, which never reproduced
+    outside quantization. Matching the known-working config instead of
+    continuing to guess at the quantized path."""
     from transformers import AutoModel, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     model = AutoModel.from_pretrained(
         model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
-        load_in_8bit=True, device_map="auto",
+        low_cpu_mem_usage=True, device_map="auto", offload_buffers=True,
     ).eval()
     return {"family": "internvl", "model": model, "tokenizer": tokenizer}
 
