@@ -31,6 +31,13 @@ CSS = """
   --mono:'JetBrains Mono','Consolas',monospace;
 }
 
+/* Streamlit's default block-container has ~6rem of top padding meant for
+   apps without a custom header — this app has its own header bar, so that
+   default padding just reads as a large dead gap above it. */
+[data-testid="stAppViewContainer"] .block-container{
+  padding-top:1.2rem !important;
+}
+
 .stApp{
   background:
     radial-gradient(ellipse 1200px 600px at 15% -10%, rgba(76,141,255,0.07), transparent 60%),
@@ -95,7 +102,6 @@ CSS = """
 
 .queue-item{ display:flex; gap:10px; align-items:center; padding:9px; border-radius:var(--radius);
   border:1px solid var(--border); background:var(--panel-alt); margin-top:8px; }
-.queue-thumb{ width:30px; height:30px; border-radius:5px; background:var(--border-strong); flex-shrink:0; }
 .queue-name{ font-size:11px; font-weight:600; color:var(--text-hi); }
 .queue-meta{ font-size:9.5px; color:var(--text-low); font-family:var(--mono); }
 .queue-status{ margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--status-safe); }

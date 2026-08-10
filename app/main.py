@@ -99,7 +99,6 @@ with left:
                 f"""
                 <div class="section-label">QUEUE (1)</div>
                 <div class="queue-item">
-                  <div class="queue-thumb"></div>
                   <div>
                     <div class="queue-name">{uploaded.name}</div>
                     <div class="queue-meta">{len(st.session_state.image_bytes) // 1024} KB &middot; {modality}</div>
