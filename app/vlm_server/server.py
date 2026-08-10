@@ -117,6 +117,8 @@ def _load_generic_trust_remote_code(model_id: str):
     from transformers import AutoModel, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, use_fast=False)
+    print(f"[DEBUG-LOAD] right after AutoTokenizer.from_pretrained: "
+          f"type={type(tokenizer)} value={tokenizer!r} module={type(tokenizer).__module__}", flush=True)
     model = AutoModel.from_pretrained(
         model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True, device_map="auto", offload_buffers=True,
