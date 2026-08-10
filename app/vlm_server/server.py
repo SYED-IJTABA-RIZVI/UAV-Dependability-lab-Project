@@ -99,22 +99,24 @@ def _load_generic_trust_remote_code(model_id: str):
     """InternVL2.5 — ships its own modeling code on the HF repo and is loaded
     via trust_remote_code, per its model card.
 
-    Dropped load_in_8bit here: confirmed working in a standalone reference
-    script on the lab GPU host WITHOUT quantization (torch_dtype=bfloat16,
-    low_cpu_mem_usage=True, device_map="auto", offload_buffers=True — CPU
-    offload for whatever doesn't fit in VRAM, if anything). We independently
-    confirmed 8-bit quantization breaks a different VLM's (DeepSeek-VL)
-    custom trust_remote_code internals in a very concrete way (a real
-    ValueError in its vision tower) — plausible this is the same class of
-    problem behind InternVL2.5's still-unexplained
-    "tokenizer became a bool inside chat()" bug, which never reproduced
-    outside quantization. Matching the known-working config instead of
-    continuing to guess at the quantized path."""
+    Root cause of the long-standing "tokenizer became a bool inside chat()"
+    bug, found by comparing against the user's own confirmed-working
+    reference script: AutoTokenizer.from_pretrained() needs use_fast=False.
+    Without it, AutoTokenizer defaults to trying the "fast" (Rust-based)
+    tokenizer, which — for custom trust_remote_code tokenizer classes that
+    only properly implement the slow (pure Python) variant, as InternVL2.5's
+    apparently does — can silently fail to produce a real tokenizer object.
+    Debug logging confirmed our own `tokenizer` variable was already
+    `False` immediately after that call returned, before .chat() was ever
+    reached, ruling out both a call-argument-order bug and (from an earlier,
+    now-disproven theory) 8-bit quantization as the cause — the corruption
+    was always in this one call. Dropped load_in_8bit anyway to match the
+    reference script's memory config (torch_dtype=bfloat16,
+    low_cpu_mem_usage=True, device_map="auto", offload_buffers=True for
+    whatever doesn't fit in VRAM)."""
     from transformers import AutoModel, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-    print(f"[DEBUG] immediately after AutoTokenizer.from_pretrained: "
-          f"type={type(tokenizer)} value={tokenizer!r}", flush=True)
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True, use_fast=False)
     model = AutoModel.from_pretrained(
         model_id, trust_remote_code=True, torch_dtype=torch.bfloat16,
         low_cpu_mem_usage=True, device_map="auto", offload_buffers=True,
