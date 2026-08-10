@@ -12,7 +12,7 @@ from style import CSS
 
 DEFAULT_SINGLE_OUTPUT_DIR = "outputs/single_images"
 
-st.set_page_config(page_title="Sky Object Detection Tool", layout="wide")
+st.set_page_config(page_title="SkyEye", page_icon="👁️", layout="wide")
 st.markdown(CSS, unsafe_allow_html=True)
 
 RFDETR_MODELS = ["YOLOv12-RGB (built-in)", "YOLOv10-IR / Thermal (built-in)"]
@@ -48,9 +48,15 @@ st.markdown(
     f"""
     <div class="sdt-header">
       <div class="sdt-brand">
-        <div class="sdt-logo">SDT</div>
+        <div class="sdt-logo">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 12C2 12 5.5 5 12 5C18.5 5 22 12 22 12C22 12 18.5 19 12 19C5.5 19 2 12 2 12Z"
+                  stroke="white" stroke-width="2" stroke-linejoin="round"/>
+            <circle cx="12" cy="12" r="3.4" fill="white"/>
+          </svg>
+        </div>
         <div>
-          <div class="sdt-brand-name">Sky Object Detection Tool</div>
+          <div class="sdt-brand-name">SkyEye</div>
           <div class="sdt-brand-sub">YOLO / VLM CASCADE &mdash; RESEARCH PROTOTYPE</div>
         </div>
       </div>
