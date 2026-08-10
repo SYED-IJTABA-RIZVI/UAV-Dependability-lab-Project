@@ -1,5 +1,10 @@
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
+# Docker isn't a TTY, so Python block-buffers stdout by default — our own
+# print()s (including the [DEBUG] detection logs) would only show up in
+# `docker compose logs` / Docker Desktop's log viewer in delayed chunks.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /srv
 
 COPY requirements.txt .

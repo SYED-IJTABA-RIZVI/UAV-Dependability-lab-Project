@@ -2,6 +2,11 @@
 # to resolve a separate CUDA toolkit.
 FROM pytorch/pytorch:2.4.0-cuda12.1-cudnn9-runtime
 
+# Docker isn't a TTY, so Python block-buffers stdout by default — both our
+# own print()s and huggingface_hub's download progress output would only
+# show up in `docker compose logs` in delayed chunks instead of live.
+ENV PYTHONUNBUFFERED=1
+
 WORKDIR /srv
 
 # deepseek_vl has no PyPI release, only a GitHub repo — `pip install
